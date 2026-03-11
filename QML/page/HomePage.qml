@@ -702,7 +702,7 @@ FluContentPage{
 
                         Image {
                             id: displayImage
-                            source: "qrc:qt/qml/CubeX_PnP/QML/svg/avatar_1.svg"
+                            source: "qrc:/image/svg/avatar_1.svg"
                             fillMode: Image.PreserveAspectFit
                             x: parent.imageX
                             y: parent.imageY

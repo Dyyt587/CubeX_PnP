@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.16)
 project(CubeX_PnP VERSION 0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_AUTORCC ON)
+
 # 设置 OpenCV 路径
 set(OpenCV_DIR "C:/Users/lzj/Github/OpenCV_MingW/OpenCV4.11_mingw13.1.0")
 find_package(FluentUI)
@@ -12,7 +14,7 @@ find_package(OpenCV REQUIRED)
 qt_standard_project_setup(REQUIRES 6.8)
 
 qt_add_executable(appCubeX_PnP
-    main.cpp
+    main.cpp image.qrc
     src/singleton.h src/stdafx.h
     src/component/CircularReveal.cpp src/component/CircularReveal.h
 )
@@ -38,6 +40,7 @@ qt_add_qml_module(appCubeX_PnP
         QML/page/SettingsPage.qml
         SOURCES src/helper/CameraDeviceManager.cpp src/helper/CameraDeviceManager.h src/helper/CameraScanManager.cpp src/helper/CameraScanManager.h src/helper/CsvFileReader.cpp src/helper/CsvFileReader.h src/helper/InitializrHelper.cpp src/helper/InitializrHelper.h src/helper/Log.cpp src/helper/Log.h src/helper/OpenCvPreviewManager.cpp src/helper/OpenCvPreviewManager.h src/helper/SerialPortManager.cpp src/helper/SerialPortManager.h src/helper/SettingsHelper.cpp src/helper/SettingsHelper.h src/helper/TranslateHelper.cpp src/helper/TranslateHelper.h
         SOURCES Version.h
+        RESOURCES image.qrc
     )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
