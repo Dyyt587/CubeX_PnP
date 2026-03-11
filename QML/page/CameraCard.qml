@@ -35,6 +35,8 @@ Rectangle {
     property real cameraSaturation: 100
     property real cameraExposure: 0
     property bool cameraConnecting: false
+    property bool bwFlip: false
+    property bool colorFlip: false
 
     property string spare2Label: qsTr("备用2")
     property string spare3Label: qsTr("备用3")
@@ -197,7 +199,6 @@ Rectangle {
                     cache: false
                     asynchronous: false
                 }
-                property bool bwFlip: false
                 Connections {
                     target: cameraCard
                     function onPreviewSourceChanged() {
@@ -253,7 +254,6 @@ Rectangle {
                     cache: false
                     asynchronous: false
                 }
-                property bool colorFlip: false
                 Connections {
                     target: cameraCard
                     function onColorPreviewSourceChanged() {

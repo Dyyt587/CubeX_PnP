@@ -185,7 +185,20 @@ void OpenCvPreviewManager::processTopFrame(const QVideoFrame &frame)
     const QImage bw = processFrameToBlackWhite(
         color, static_cast<BinAlgorithm>(m_topBinAlgorithm), m_topBinParam1, m_topBinParam2);
 
-    m_topProcessingMs = timer.nsecsElapsed() / 1000000.0;
+    const double frameMs = timer.nsecsElapsed() / 1000000.0;
+    if (frameMs > m_topProcessingMaxMs) {
+        m_topProcessingMaxMs = frameMs;
+    }
+    const qint64 nowMs = m_fpsTimer.elapsed();
+    if (m_topProcWindowStartMs == 0) {
+        m_topProcWindowStartMs = nowMs;
+    }
+    if (nowMs - m_topProcWindowStartMs >= 1000) {
+        m_topProcessingMs = m_topProcessingMaxMs;
+        m_topProcessingMaxMs = 0;
+        m_topProcWindowStartMs = nowMs;
+        emit topProcessingMsChanged();
+    }
     m_topResWidth = color.width();
     m_topResHeight = color.height();
 
@@ -213,7 +226,20 @@ void OpenCvPreviewManager::processBottomFrame(const QVideoFrame &frame)
     const QImage bw = processFrameToBlackWhite(
         color, static_cast<BinAlgorithm>(m_bottomBinAlgorithm), m_bottomBinParam1, m_bottomBinParam2);
 
-    m_bottomProcessingMs = timer.nsecsElapsed() / 1000000.0;
+    const double frameMs = timer.nsecsElapsed() / 1000000.0;
+    if (frameMs > m_bottomProcessingMaxMs) {
+        m_bottomProcessingMaxMs = frameMs;
+    }
+    const qint64 nowMs = m_fpsTimer.elapsed();
+    if (m_bottomProcWindowStartMs == 0) {
+        m_bottomProcWindowStartMs = nowMs;
+    }
+    if (nowMs - m_bottomProcWindowStartMs >= 1000) {
+        m_bottomProcessingMs = m_bottomProcessingMaxMs;
+        m_bottomProcessingMaxMs = 0;
+        m_bottomProcWindowStartMs = nowMs;
+        emit bottomProcessingMsChanged();
+    }
     m_bottomResWidth = color.width();
     m_bottomResHeight = color.height();
 

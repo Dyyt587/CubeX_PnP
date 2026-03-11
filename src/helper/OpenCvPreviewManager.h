@@ -32,8 +32,8 @@ class OpenCvPreviewManager : public QObject
     Q_PROPERTY(int bottomFrameToken READ bottomFrameToken NOTIFY bottomFrameTokenChanged)
     Q_PROPERTY(double topFps READ topFps NOTIFY topFpsChanged)
     Q_PROPERTY(double bottomFps READ bottomFps NOTIFY bottomFpsChanged)
-    Q_PROPERTY(double topProcessingMs READ topProcessingMs NOTIFY topFrameTokenChanged)
-    Q_PROPERTY(double bottomProcessingMs READ bottomProcessingMs NOTIFY bottomFrameTokenChanged)
+    Q_PROPERTY(double topProcessingMs READ topProcessingMs NOTIFY topProcessingMsChanged)
+    Q_PROPERTY(double bottomProcessingMs READ bottomProcessingMs NOTIFY bottomProcessingMsChanged)
     Q_PROPERTY(int topResWidth READ topResWidth NOTIFY topFrameTokenChanged)
     Q_PROPERTY(int topResHeight READ topResHeight NOTIFY topFrameTokenChanged)
     Q_PROPERTY(int bottomResWidth READ bottomResWidth NOTIFY bottomFrameTokenChanged)
@@ -98,6 +98,8 @@ signals:
     void bottomBinParam1Changed();
     void topBinParam2Changed();
     void bottomBinParam2Changed();
+    void topProcessingMsChanged();
+    void bottomProcessingMsChanged();
 
 private:
     void processTopFrame(const QVideoFrame &frame);
@@ -137,6 +139,10 @@ private:
     double m_bottomBinParam2 = 5;
     double m_topProcessingMs = 0;
     double m_bottomProcessingMs = 0;
+    double m_topProcessingMaxMs = 0;
+    double m_bottomProcessingMaxMs = 0;
+    qint64 m_topProcWindowStartMs = 0;
+    qint64 m_bottomProcWindowStartMs = 0;
     int m_topResWidth = 0;
     int m_topResHeight = 0;
     int m_bottomResWidth = 0;
