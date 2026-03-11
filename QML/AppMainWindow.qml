@@ -154,48 +154,48 @@ FluWindow {
     property int minNavPaneWidth: 150  // 最小宽度
     property int maxNavPaneWidth: 400  // 最大宽度
 
-    // 拖动分隔条
-    Rectangle {
-        id: resizeHandle
-        width: 6
-        height: parent.height
-        anchors.top: parent.top
-        anchors.topMargin: appBar ? appBar.height : 0
-        x: navPaneWidth - width / 2
-        color: "transparent"
-        z: 999
+    // // 拖动分隔条
+    // Rectangle {
+    //     id: resizeHandle
+    //     width: 6
+    //     height: parent.height
+    //     anchors.top: parent.top
+    //     anchors.topMargin: appBar ? appBar.height : 0
+    //     x: navPaneWidth - width / 2
+    //     color: "transparent"
+    //     z: 999
 
-        Rectangle {
-            anchors.centerIn: parent
-            width: 2
-            height: parent.height
-            color: handleMouseArea.containsMouse || handleMouseArea.pressed ? 
-                   FluTheme.primaryColor : "transparent"
-            opacity: 0.6
-        }
+    //     Rectangle {
+    //         anchors.centerIn: parent
+    //         width: 2
+    //         height: parent.height
+    //         color: handleMouseArea.containsMouse || handleMouseArea.pressed ? 
+    //                FluTheme.primaryColor : "transparent"
+    //         opacity: 0.6
+    //     }
 
-        MouseArea {
-            id: handleMouseArea
-            anchors.fill: parent
-            cursorShape: Qt.SizeHorCursor
-            hoverEnabled: true
+    //     MouseArea {
+    //         id: handleMouseArea
+    //         anchors.fill: parent
+    //         cursorShape: Qt.SizeHorCursor
+    //         hoverEnabled: true
             
-            property real startX: 0
-            property int startWidth: 0
+    //         property real startX: 0
+    //         property int startWidth: 0
 
-            onPressed: (mouse) => {
-                startX = mouse.x
-                startWidth = navPaneWidth
-            }
+    //         onPressed: (mouse) => {
+    //             startX = mouse.x
+    //             startWidth = navPaneWidth
+    //         }
 
-            onPositionChanged: (mouse) => {
-                if (pressed) {
-                    var newWidth = startWidth + (mouseX - startX)
-                    navPaneWidth = Math.max(minNavPaneWidth, Math.min(maxNavPaneWidth, newWidth))
-                }
-            }
-        }
-    }
+    //         onPositionChanged: (mouse) => {
+    //             if (pressed) {
+    //                 var newWidth = startWidth + (mouseX - startX)
+    //                 navPaneWidth = Math.max(minNavPaneWidth, Math.min(maxNavPaneWidth, newWidth))
+    //             }
+    //         }
+    //     }
+    // }
     Component{
         id: com_reveal
         CircularReveal{
