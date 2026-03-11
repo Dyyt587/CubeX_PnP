@@ -1,0 +1,30 @@
+#ifndef CSVFILEREADER_H
+#define CSVFILEREADER_H
+
+#include <QObject>
+#include <QList>
+#include <QVariantList>
+#include <QVariantMap>
+#include <QString>
+#include <QStringList>
+
+class CsvFileReader : public QObject {
+    Q_OBJECT
+
+public:
+    explicit CsvFileReader(QObject *parent = nullptr);
+
+    Q_INVOKABLE QVariantList readCsvFile(const QString &filePath);
+    Q_INVOKABLE QString getLastError() const;
+
+private:
+    QVariantList parseCSV(const QString &content, const QStringList &headers);
+    QStringList parseCSVLine(const QString &line);
+    QString lastError;
+
+signals:
+    void fileParsed(const QVariantList &data);
+    void parseError(const QString &error);
+};
+
+#endif // CSVFILEREADER_H

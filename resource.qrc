@@ -1,5 +1,22 @@
 <RCC>
     <qresource prefix="/">
         <file>QML/AppMainWindow.qml</file>
+        <file>QML/page/DeviceConnectionPage.qml</file>
+        <file>QML/page/HomePage.qml</file>
+        <file>QML/page/SettingsPage.qml</file>
+        <file>QML/svg/avatar_1.svg</file>
+        <file>QML/svg/avatar_2.svg</file>
+        <file>QML/svg/avatar_3.svg</file>
+        <file>QML/svg/avatar_4.svg</file>
+        <file>QML/svg/avatar_5.svg</file>
+        <file>QML/svg/avatar_6.svg</file>
+        <file>QML/svg/avatar_7.svg</file>
+        <file>QML/svg/avatar_8.svg</file>
+        <file>QML/svg/avatar_9.svg</file>
+        <file>QML/svg/avatar_10.svg</file>
+        <file>QML/svg/avatar_11.svg</file>
+        <file>QML/svg/avatar_12.svg</file>
+        <file>QML/svg/home.svg</file>
+        <file>QML/svg/home_dark.svg</file>
     </qresource>
 </RCC>
