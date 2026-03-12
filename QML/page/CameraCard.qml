@@ -54,6 +54,7 @@ Rectangle {
     property int binAlgorithm: 0
     property real binParam1: 127
     property real binParam2: 5
+    property bool binInvert: false
 
     readonly property var binAlgorithmNames: [
         qsTr("手动阈值"),
@@ -68,6 +69,7 @@ Rectangle {
     signal binAlgorithmUpdated(int algo)
     signal binParam1Updated(real value)
     signal binParam2Updated(real value)
+    signal binInvertUpdated(bool value)
 
     onCameraActiveChanged: {
         if (cameraActive && sharedCamera) {
@@ -445,6 +447,17 @@ Rectangle {
                             binAlgorithm = currentIndex
                             cameraCard.binAlgorithmUpdated(currentIndex)
                         }
+                    }
+                }
+            }
+
+            FluCheckBox {
+                text: qsTr("取反")
+                checked: binInvert
+                onCheckedChanged: {
+                    if (checked !== binInvert) {
+                        binInvert = checked
+                        cameraCard.binInvertUpdated(checked)
                     }
                 }
             }

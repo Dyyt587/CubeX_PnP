@@ -95,11 +95,21 @@ FluContentPage {
                     binAlgorithm: openCvPreviewManager.topBinAlgorithm
                     binParam1: openCvPreviewManager.topBinParam1
                     binParam2: openCvPreviewManager.topBinParam2
+                    binInvert: openCvPreviewManager.topBinInvert
                     onSelectCamera: (index) => cameraDeviceManager.selectTopCamera(index)
                     onInfoRequested: (message) => showInfo(message)
                     onBinAlgorithmUpdated: (algo) => { openCvPreviewManager.topBinAlgorithm = algo }
                     onBinParam1Updated: (value) => { openCvPreviewManager.topBinParam1 = value }
                     onBinParam2Updated: (value) => { openCvPreviewManager.topBinParam2 = value }
+                    onBinInvertUpdated: (value) => { openCvPreviewManager.topBinInvert = value }
+                    spare2Label: qsTr("最小面积")
+                    spare3Label: qsTr("最大面积")
+                    spare2From: 0; spare2To: 10000
+                    spare3From: 0; spare3To: 100000
+                    spare2Value: openCvPreviewManager.topContourMinArea
+                    spare3Value: openCvPreviewManager.topContourMaxArea
+                    onSpare2ValueChanged: openCvPreviewManager.topContourMinArea = spare2Value
+                    onSpare3ValueChanged: openCvPreviewManager.topContourMaxArea = spare3Value
                     connectToggleAction: function() {
                         if (cameraDeviceManager.topCameraOpened) {
                             cameraDeviceManager.closeTopCamera()
@@ -135,11 +145,21 @@ FluContentPage {
                     binAlgorithm: openCvPreviewManager.bottomBinAlgorithm
                     binParam1: openCvPreviewManager.bottomBinParam1
                     binParam2: openCvPreviewManager.bottomBinParam2
+                    binInvert: openCvPreviewManager.bottomBinInvert
                     onSelectCamera: (index) => cameraDeviceManager.selectBottomCamera(index)
                     onInfoRequested: (message) => showInfo(message)
                     onBinAlgorithmUpdated: (algo) => { openCvPreviewManager.bottomBinAlgorithm = algo }
                     onBinParam1Updated: (value) => { openCvPreviewManager.bottomBinParam1 = value }
                     onBinParam2Updated: (value) => { openCvPreviewManager.bottomBinParam2 = value }
+                    onBinInvertUpdated: (value) => { openCvPreviewManager.bottomBinInvert = value }
+                    spare2Label: qsTr("最小面积")
+                    spare3Label: qsTr("最大面积")
+                    spare2From: 0; spare2To: 10000
+                    spare3From: 0; spare3To: 100000
+                    spare2Value: openCvPreviewManager.bottomContourMinArea
+                    spare3Value: openCvPreviewManager.bottomContourMaxArea
+                    onSpare2ValueChanged: openCvPreviewManager.bottomContourMinArea = spare2Value
+                    onSpare3ValueChanged: openCvPreviewManager.bottomContourMaxArea = spare3Value
                     connectToggleAction: function() {
                         if (cameraDeviceManager.bottomCameraOpened) {
                             cameraDeviceManager.closeBottomCamera()

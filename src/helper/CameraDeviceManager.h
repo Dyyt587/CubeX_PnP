@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QStringList>
 
+class QMediaDevices;
 class QThread;
 class QTimer;
 
@@ -79,5 +80,6 @@ private:
     bool m_bottomCameraOpened;
     QThread *m_workerThread;
     QObject *m_worker;
+    QMediaDevices *m_mediaDevices;
     QTimer *m_scanTimer;
 };

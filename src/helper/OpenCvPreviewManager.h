@@ -8,6 +8,7 @@
 #include <QMutex>
 #include <QVideoSink>
 #include <QElapsedTimer>
+#include <QAtomicInt>
 
 class QCamera;
 class QVideoFrame;
@@ -44,6 +45,12 @@ class OpenCvPreviewManager : public QObject
     Q_PROPERTY(double bottomBinParam1 READ bottomBinParam1 WRITE setBottomBinParam1 NOTIFY bottomBinParam1Changed)
     Q_PROPERTY(double topBinParam2 READ topBinParam2 WRITE setTopBinParam2 NOTIFY topBinParam2Changed)
     Q_PROPERTY(double bottomBinParam2 READ bottomBinParam2 WRITE setBottomBinParam2 NOTIFY bottomBinParam2Changed)
+    Q_PROPERTY(double topContourMinArea READ topContourMinArea WRITE setTopContourMinArea NOTIFY topContourMinAreaChanged)
+    Q_PROPERTY(double bottomContourMinArea READ bottomContourMinArea WRITE setBottomContourMinArea NOTIFY bottomContourMinAreaChanged)
+    Q_PROPERTY(double topContourMaxArea READ topContourMaxArea WRITE setTopContourMaxArea NOTIFY topContourMaxAreaChanged)
+    Q_PROPERTY(double bottomContourMaxArea READ bottomContourMaxArea WRITE setBottomContourMaxArea NOTIFY bottomContourMaxAreaChanged)
+    Q_PROPERTY(bool topBinInvert READ topBinInvert WRITE setTopBinInvert NOTIFY topBinInvertChanged)
+    Q_PROPERTY(bool bottomBinInvert READ bottomBinInvert WRITE setBottomBinInvert NOTIFY bottomBinInvertChanged)
 
 public:
     enum BinAlgorithm {
@@ -56,6 +63,7 @@ public:
     Q_ENUM(BinAlgorithm)
 
     explicit OpenCvPreviewManager(QObject *parent = nullptr);
+    ~OpenCvPreviewManager() override;
 
     int topFrameToken() const;
     int bottomFrameToken() const;
@@ -81,6 +89,20 @@ public:
     double bottomBinParam2() const;
     void setBottomBinParam2(double v);
 
+    double topContourMinArea() const;
+    void setTopContourMinArea(double v);
+    double bottomContourMinArea() const;
+    void setBottomContourMinArea(double v);
+    double topContourMaxArea() const;
+    void setTopContourMaxArea(double v);
+    double bottomContourMaxArea() const;
+    void setBottomContourMaxArea(double v);
+
+    bool topBinInvert() const;
+    void setTopBinInvert(bool v);
+    bool bottomBinInvert() const;
+    void setBottomBinInvert(bool v);
+
     Q_INVOKABLE void setTopCamera(QObject *cameraObject);
     Q_INVOKABLE void setBottomCamera(QObject *cameraObject);
 
@@ -98,15 +120,24 @@ signals:
     void bottomBinParam1Changed();
     void topBinParam2Changed();
     void bottomBinParam2Changed();
+    void topContourMinAreaChanged();
+    void bottomContourMinAreaChanged();
+    void topContourMaxAreaChanged();
+    void bottomContourMaxAreaChanged();
+    void topBinInvertChanged();
+    void bottomBinInvertChanged();
     void topProcessingMsChanged();
     void bottomProcessingMsChanged();
 
 private:
     void processTopFrame(const QVideoFrame &frame);
     void processBottomFrame(const QVideoFrame &frame);
+    void onTopProcessed(const QImage &bw, const QImage &color, double frameMs, int w, int h);
+    void onBottomProcessed(const QImage &bw, const QImage &color, double frameMs, int w, int h);
     void updateTopFps();
     void updateBottomFps();
-    static QImage processFrameToBlackWhite(const QImage &source, BinAlgorithm algo, double param1, double param2);
+    static QImage processFrameToBlackWhite(const QImage &source, BinAlgorithm algo, double param1, double param2, bool invert);
+    static QImage detectAndDrawContours(const QImage &bwSource, const QImage &colorSource, double minArea, double maxArea);
     static QImage cropToSquare(const QImage &source);
 
 private:
@@ -147,4 +178,15 @@ private:
     int m_topResHeight = 0;
     int m_bottomResWidth = 0;
     int m_bottomResHeight = 0;
+
+    double m_topContourMinArea = 100;
+    double m_bottomContourMinArea = 100;
+    double m_topContourMaxArea = 50000;
+    double m_bottomContourMaxArea = 50000;
+
+    bool m_topBinInvert = false;
+    bool m_bottomBinInvert = false;
+
+    QAtomicInt m_topBusy{0};
+    QAtomicInt m_bottomBusy{0};
 };

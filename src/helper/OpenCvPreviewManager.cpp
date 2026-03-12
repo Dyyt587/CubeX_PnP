@@ -7,6 +7,8 @@
 
 #include <opencv2/imgproc.hpp>
 
+#include <QtConcurrent/QtConcurrent>
+
 OpenCvPreviewImageProvider::OpenCvPreviewImageProvider(OpenCvPreviewManager *manager)
     : QQuickImageProvider(QQuickImageProvider::Image),
     m_manager(manager)
@@ -53,6 +55,14 @@ OpenCvPreviewManager::OpenCvPreviewManager(QObject *parent)
     connect(&m_bottomSink, &QVideoSink::videoFrameChanged, this, [this](const QVideoFrame &frame) {
         processBottomFrame(frame);
     });
+}
+
+OpenCvPreviewManager::~OpenCvPreviewManager()
+{
+    // Wait for any in-flight tasks to finish
+    while (m_topBusy.loadAcquire() || m_bottomBusy.loadAcquire()) {
+        QThread::msleep(1);
+    }
 }
 
 int OpenCvPreviewManager::topFrameToken() const
@@ -105,6 +115,32 @@ void OpenCvPreviewManager::setTopBinParam2(double v) {
 double OpenCvPreviewManager::bottomBinParam2() const { return m_bottomBinParam2; }
 void OpenCvPreviewManager::setBottomBinParam2(double v) {
     if (!qFuzzyCompare(m_bottomBinParam2, v)) { m_bottomBinParam2 = v; emit bottomBinParam2Changed(); }
+}
+
+double OpenCvPreviewManager::topContourMinArea() const { return m_topContourMinArea; }
+void OpenCvPreviewManager::setTopContourMinArea(double v) {
+    if (!qFuzzyCompare(m_topContourMinArea, v)) { m_topContourMinArea = v; emit topContourMinAreaChanged(); }
+}
+double OpenCvPreviewManager::bottomContourMinArea() const { return m_bottomContourMinArea; }
+void OpenCvPreviewManager::setBottomContourMinArea(double v) {
+    if (!qFuzzyCompare(m_bottomContourMinArea, v)) { m_bottomContourMinArea = v; emit bottomContourMinAreaChanged(); }
+}
+double OpenCvPreviewManager::topContourMaxArea() const { return m_topContourMaxArea; }
+void OpenCvPreviewManager::setTopContourMaxArea(double v) {
+    if (!qFuzzyCompare(m_topContourMaxArea, v)) { m_topContourMaxArea = v; emit topContourMaxAreaChanged(); }
+}
+double OpenCvPreviewManager::bottomContourMaxArea() const { return m_bottomContourMaxArea; }
+void OpenCvPreviewManager::setBottomContourMaxArea(double v) {
+    if (!qFuzzyCompare(m_bottomContourMaxArea, v)) { m_bottomContourMaxArea = v; emit bottomContourMaxAreaChanged(); }
+}
+
+bool OpenCvPreviewManager::topBinInvert() const { return m_topBinInvert; }
+void OpenCvPreviewManager::setTopBinInvert(bool v) {
+    if (m_topBinInvert != v) { m_topBinInvert = v; emit topBinInvertChanged(); }
+}
+bool OpenCvPreviewManager::bottomBinInvert() const { return m_bottomBinInvert; }
+void OpenCvPreviewManager::setBottomBinInvert(bool v) {
+    if (m_bottomBinInvert != v) { m_bottomBinInvert = v; emit bottomBinInvertChanged(); }
 }
 
 void OpenCvPreviewManager::setTopCamera(QObject *cameraObject)
@@ -173,19 +209,80 @@ QImage OpenCvPreviewManager::imageForId(const QString &id) const
 
 void OpenCvPreviewManager::processTopFrame(const QVideoFrame &frame)
 {
-    QElapsedTimer timer;
-    timer.start();
-
-    const QImage source = frame.toImage();
-    if (source.isNull()) {
+    // Drop frame if previous processing is still running
+    if (!m_topBusy.testAndSetAcquire(0, 1)) {
         return;
     }
 
-    const QImage color = cropToSquare(source);
-    const QImage bw = processFrameToBlackWhite(
-        color, static_cast<BinAlgorithm>(m_topBinAlgorithm), m_topBinParam1, m_topBinParam2);
+    const QImage source = frame.toImage();
+    if (source.isNull()) {
+        m_topBusy.storeRelease(0);
+        return;
+    }
 
-    const double frameMs = timer.nsecsElapsed() / 1000000.0;
+    // Capture parameters by value for thread safety
+    const auto algo = static_cast<BinAlgorithm>(m_topBinAlgorithm);
+    const double param1 = m_topBinParam1;
+    const double param2 = m_topBinParam2;
+    const bool invert = m_topBinInvert;
+    const double cMinArea = m_topContourMinArea;
+    const double cMaxArea = m_topContourMaxArea;
+
+    QtConcurrent::run([this, source, algo, param1, param2, invert, cMinArea, cMaxArea]() {
+        QElapsedTimer timer;
+        timer.start();
+
+        const QImage color = cropToSquare(source);
+        const QImage bw = processFrameToBlackWhite(color, algo, param1, param2, invert);
+        const QImage contourImage = detectAndDrawContours(bw, color, cMinArea, cMaxArea);
+        const double frameMs = timer.nsecsElapsed() / 1000000.0;
+
+        QMetaObject::invokeMethod(this, [this, contourImage, color, frameMs,
+                                         w = color.width(), h = color.height()]() {
+            onTopProcessed(contourImage, color, frameMs, w, h);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void OpenCvPreviewManager::processBottomFrame(const QVideoFrame &frame)
+{
+    // Drop frame if previous processing is still running
+    if (!m_bottomBusy.testAndSetAcquire(0, 1)) {
+        return;
+    }
+
+    const QImage source = frame.toImage();
+    if (source.isNull()) {
+        m_bottomBusy.storeRelease(0);
+        return;
+    }
+
+    // Capture parameters by value for thread safety
+    const auto algo = static_cast<BinAlgorithm>(m_bottomBinAlgorithm);
+    const double param1 = m_bottomBinParam1;
+    const double param2 = m_bottomBinParam2;
+    const bool invert = m_bottomBinInvert;
+    const double cMinArea = m_bottomContourMinArea;
+    const double cMaxArea = m_bottomContourMaxArea;
+
+    QtConcurrent::run([this, source, algo, param1, param2, invert, cMinArea, cMaxArea]() {
+        QElapsedTimer timer;
+        timer.start();
+
+        const QImage color = cropToSquare(source);
+        const QImage bw = processFrameToBlackWhite(color, algo, param1, param2, invert);
+        const QImage contourImage = detectAndDrawContours(bw, color, cMinArea, cMaxArea);
+        const double frameMs = timer.nsecsElapsed() / 1000000.0;
+
+        QMetaObject::invokeMethod(this, [this, contourImage, color, frameMs,
+                                         w = color.width(), h = color.height()]() {
+            onBottomProcessed(contourImage, color, frameMs, w, h);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void OpenCvPreviewManager::onTopProcessed(const QImage &bw, const QImage &color, double frameMs, int w, int h)
+{
     if (frameMs > m_topProcessingMaxMs) {
         m_topProcessingMaxMs = frameMs;
     }
@@ -199,8 +296,8 @@ void OpenCvPreviewManager::processTopFrame(const QVideoFrame &frame)
         m_topProcWindowStartMs = nowMs;
         emit topProcessingMsChanged();
     }
-    m_topResWidth = color.width();
-    m_topResHeight = color.height();
+    m_topResWidth = w;
+    m_topResHeight = h;
 
     {
         QMutexLocker locker(&m_imageMutex);
@@ -210,23 +307,12 @@ void OpenCvPreviewManager::processTopFrame(const QVideoFrame &frame)
     ++m_topFrameToken;
     emit topFrameTokenChanged();
     updateTopFps();
+
+    m_topBusy.storeRelease(0);
 }
 
-void OpenCvPreviewManager::processBottomFrame(const QVideoFrame &frame)
+void OpenCvPreviewManager::onBottomProcessed(const QImage &bw, const QImage &color, double frameMs, int w, int h)
 {
-    QElapsedTimer timer;
-    timer.start();
-
-    const QImage source = frame.toImage();
-    if (source.isNull()) {
-        return;
-    }
-
-    const QImage color = cropToSquare(source);
-    const QImage bw = processFrameToBlackWhite(
-        color, static_cast<BinAlgorithm>(m_bottomBinAlgorithm), m_bottomBinParam1, m_bottomBinParam2);
-
-    const double frameMs = timer.nsecsElapsed() / 1000000.0;
     if (frameMs > m_bottomProcessingMaxMs) {
         m_bottomProcessingMaxMs = frameMs;
     }
@@ -240,8 +326,8 @@ void OpenCvPreviewManager::processBottomFrame(const QVideoFrame &frame)
         m_bottomProcWindowStartMs = nowMs;
         emit bottomProcessingMsChanged();
     }
-    m_bottomResWidth = color.width();
-    m_bottomResHeight = color.height();
+    m_bottomResWidth = w;
+    m_bottomResHeight = h;
 
     {
         QMutexLocker locker(&m_imageMutex);
@@ -251,6 +337,8 @@ void OpenCvPreviewManager::processBottomFrame(const QVideoFrame &frame)
     ++m_bottomFrameToken;
     emit bottomFrameTokenChanged();
     updateBottomFps();
+
+    m_bottomBusy.storeRelease(0);
 }
 
 void OpenCvPreviewManager::updateTopFps()
@@ -304,7 +392,7 @@ QImage OpenCvPreviewManager::cropToSquare(const QImage &source)
     return source.copy(x, y, side, side);
 }
 
-QImage OpenCvPreviewManager::processFrameToBlackWhite(const QImage &source, BinAlgorithm algo, double param1, double param2)
+QImage OpenCvPreviewManager::processFrameToBlackWhite(const QImage &source, BinAlgorithm algo, double param1, double param2, bool invert)
 {
     if (source.isNull()) {
         return QImage();
@@ -347,6 +435,104 @@ QImage OpenCvPreviewManager::processFrameToBlackWhite(const QImage &source, BinA
         break;
     }
 
+    if (invert) {
+        cv::bitwise_not(binary, binary);
+    }
+
     QImage result(binary.data, binary.cols, binary.rows, static_cast<int>(binary.step), QImage::Format_Grayscale8);
     return result.copy();
+}
+
+QImage OpenCvPreviewManager::detectAndDrawContours(const QImage &bwSource, const QImage &colorSource, double minArea, double maxArea)
+{
+    if (bwSource.isNull()) {
+        return bwSource;
+    }
+
+    // Convert BW to cv::Mat for findContours
+    const QImage gray = bwSource.convertToFormat(QImage::Format_Grayscale8);
+    cv::Mat binaryMat(gray.height(), gray.width(), CV_8UC1,
+                      const_cast<uchar *>(gray.constBits()), gray.bytesPerLine());
+
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(binaryMat, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+
+    // Convert BW to BGR so we can draw colored annotations
+    cv::Mat display;
+    cv::cvtColor(binaryMat, display, cv::COLOR_GRAY2BGR);
+
+    // Draw reference rectangles for min/max area thresholds at image center
+    const cv::Point2f center(display.cols / 2.0f, display.rows / 2.0f);
+    const int minSide = static_cast<int>(std::sqrt(minArea));
+    const int maxSide = static_cast<int>(std::sqrt(maxArea));
+    // Dark blue for min area
+    cv::rectangle(display,
+                  cv::Point(static_cast<int>(center.x) - minSide / 2, static_cast<int>(center.y) - minSide / 2),
+                  cv::Point(static_cast<int>(center.x) + minSide / 2, static_cast<int>(center.y) + minSide / 2),
+                  cv::Scalar(255, 100, 50), 8);
+    // Light blue for max area
+    cv::rectangle(display,
+                  cv::Point(static_cast<int>(center.x) - maxSide / 2, static_cast<int>(center.y) - maxSide / 2),
+                  cv::Point(static_cast<int>(center.x) + maxSide / 2, static_cast<int>(center.y) + maxSide / 2),
+                  cv::Scalar(255, 200, 100), 8);
+
+    for (const auto &contour : contours) {
+        const double area = cv::contourArea(contour);
+        if (area < minArea || area > maxArea) {
+            continue;
+        }
+
+        // Multi-criteria circle detection
+        const double perimeter = cv::arcLength(contour, true);
+        const double circularity = (perimeter > 0) ? (4.0 * CV_PI * area / (perimeter * perimeter)) : 0;
+
+        // Aspect ratio of bounding rect (circle ≈ 1.0)
+        const cv::Rect boundRect = cv::boundingRect(contour);
+        const double aspectRatio = (boundRect.height > 0)
+            ? static_cast<double>(boundRect.width) / boundRect.height : 0;
+
+        // Area fill ratio: contour area vs enclosing circle area
+        float encRadius;
+        cv::Point2f encCenter;
+        cv::minEnclosingCircle(contour, encCenter, encRadius);
+        const double encCircleArea = CV_PI * encRadius * encRadius;
+        const double fillRatio = (encCircleArea > 0) ? (area / encCircleArea) : 0;
+
+        // Circle if: circularity > 0.7, aspect ratio close to 1, fill ratio high
+        const bool isCircle = (circularity > 0.7)
+                           && (aspectRatio > 0.75 && aspectRatio < 1.33)
+                           && (fillRatio > 0.8);
+
+        cv::Point2f ctr;
+        if (isCircle && contour.size() >= 5) {
+            // Use fitEllipse for sub-pixel accuracy
+            const cv::RotatedRect ellipse = cv::fitEllipse(contour);
+            ctr = ellipse.center;
+            const float avgRadius = (ellipse.size.width + ellipse.size.height) / 4.0f;
+            cv::circle(display, cv::Point(static_cast<int>(ctr.x), static_cast<int>(ctr.y)),
+                       static_cast<int>(avgRadius), cv::Scalar(0, 255, 255), 4);
+        } else {
+            // Non-circular: draw rotated rectangle
+            cv::RotatedRect rect = cv::minAreaRect(contour);
+            ctr = rect.center;
+            cv::Point2f pts[4];
+            rect.points(pts);
+            for (int i = 0; i < 4; ++i) {
+                cv::line(display, pts[i], pts[(i + 1) % 4], cv::Scalar(0, 255, 0), 4);
+            }
+        }
+
+        // Draw red cross at center, size proportional to area
+        const int crossSize = std::max(5, static_cast<int>(std::sqrt(area) * 0.3));
+        const cv::Point c(static_cast<int>(ctr.x), static_cast<int>(ctr.y));
+        cv::line(display, cv::Point(c.x - crossSize, c.y), cv::Point(c.x + crossSize, c.y),
+                 cv::Scalar(0, 0, 255), 8);
+        cv::line(display, cv::Point(c.x, c.y - crossSize), cv::Point(c.x, c.y + crossSize),
+                 cv::Scalar(0, 0, 255), 8);
+    }
+
+    QImage result(display.data, display.cols, display.rows,
+                  static_cast<int>(display.step), QImage::Format_RGB888);
+    // BGR -> RGB
+    return result.rgbSwapped().copy();
 }
