@@ -520,6 +520,17 @@ QImage OpenCvPreviewManager::detectAndDrawContours(const QImage &bwSource, const
             for (int i = 0; i < 4; ++i) {
                 cv::line(display, pts[i], pts[(i + 1) % 4], cv::Scalar(0, 255, 0), 4);
             }
+
+            // Draw rotation angle text
+            float angle = rect.angle;
+            if (rect.size.width < rect.size.height) {
+                angle += 90.0f;
+            }
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "%.1f", static_cast<double>(angle));
+            cv::putText(display, buf,
+                        cv::Point(static_cast<int>(ctr.x) + 30, static_cast<int>(ctr.y) - 30),
+                        cv::FONT_HERSHEY_SIMPLEX, 1.6, cv::Scalar(0, 255, 0), 6);
         }
 
         // Draw red cross at center, size proportional to area
