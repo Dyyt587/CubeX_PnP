@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QStringList>
 
+class QThread;
 class QTimer;
 
 class SerialPortManager : public QObject
@@ -12,6 +13,7 @@ class SerialPortManager : public QObject
 
 public:
     explicit SerialPortManager(QObject *parent = nullptr);
+    ~SerialPortManager() override;
 
     QStringList portNames() const;
 
@@ -19,11 +21,14 @@ public:
 
 signals:
     void portNamesChanged();
+    void requestScan();
 
 private:
     void updatePortsIfChanged(const QStringList &newPorts);
 
 private:
     QStringList m_portNames;
+    QThread *m_workerThread;
+    QObject *m_worker;
     QTimer *m_scanTimer;
 };

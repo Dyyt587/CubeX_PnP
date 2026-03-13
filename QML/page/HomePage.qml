@@ -3,6 +3,7 @@ import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import QtQuick.Window 2.15
 import QtQuick.Dialogs
+import QtWebView
 import QtMultimedia
 import FluentUI 1.0
 
@@ -114,11 +115,11 @@ FluContentPage{
     }
 
     function isCurrentPreviewOpened() {
-        return homePreviewRole === 0 ? cameraDeviceManager.topCameraOpened : cameraDeviceManager.bottomCameraOpened
+        return homePreviewRole < 2 ? cameraDeviceManager.topCameraOpened : cameraDeviceManager.bottomCameraOpened
     }
 
     function currentPreviewCameraDevice() {
-        return homePreviewRole === 0 ? topPreviewCameraDevice : bottomPreviewCameraDevice
+        return homePreviewRole < 2 ? topPreviewCameraDevice : bottomPreviewCameraDevice
     }
 
     Timer {
@@ -696,94 +697,11 @@ FluContentPage{
                         anchors.fill: parent
                         clip: true
 
-                        property real imageScale: 1.0
-                        property real imageX: 0
-                        property real imageY: 0
-
-                        Image {
-                            id: displayImage
-                            source: "qrc:/image/svg/avatar_1.svg"
-                            fillMode: Image.PreserveAspectFit
-                            x: parent.imageX
-                            y: parent.imageY
-                            width: sourceSize.width * parent.imageScale
-                            height: sourceSize.height * parent.imageScale
-                            smooth: true
-
-                            MouseArea {
-                                anchors.fill: parent
-                                drag.target: parent
-                                cursorShape: Qt.OpenHandCursor
-                                
-                                onPressed: {
-                                    cursorShape = Qt.ClosedHandCursor
-                                }
-                                onReleased: {
-                                    cursorShape = Qt.OpenHandCursor
-                                    parent.parent.imageX = parent.x
-                                    parent.parent.imageY = parent.y
-                                }
-                            }
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            acceptedButtons: Qt.NoButton
-                            onWheel: (wheel) => {
-                                var delta = wheel.angleDelta.y / 120
-                                var scaleFactor = 1.1
-                                if (delta > 0) {
-                                    parent.imageScale *= scaleFactor
-                                } else {
-                                    parent.imageScale /= scaleFactor
-                                }
-                                parent.imageScale = Math.max(0.1, Math.min(5.0, parent.imageScale))
-                            }
-                        }
-
-                        Row {
-                            anchors.bottom: parent.bottom
-                            anchors.right: parent.right
-                            anchors.margins: 5
-                            spacing: 5
-
-                            FluIconButton {
-                                iconSource: FluentIcons.ZoomIn
-                                onClicked: {
-                                    parent.parent.imageScale *= 1.2
-                                }
-                            }
-                            FluIconButton {
-                                iconSource: FluentIcons.ZoomOut
-                                onClicked: {
-                                    parent.parent.imageScale /= 1.2
-                                }
-                            }
-                            FluIconButton {
-                                iconSource: FluentIcons.FitPage
-                                onClicked: {
-                                    parent.parent.imageScale = 1.0
-                                    parent.parent.imageX = 0
-                                    parent.parent.imageY = 0
-                                }
-                            }
-                            FluIconButton {
-                                iconSource: FluentIcons.FullScreen
-                                onClicked: {
-                                    // 计算适应容器的缩放比例
-                                    if (displayImage.sourceSize.width > 0 && displayImage.sourceSize.height > 0) {
-                                        var scaleX = parent.parent.width / displayImage.sourceSize.width
-                                        var scaleY = parent.parent.height / displayImage.sourceSize.height
-                                        parent.parent.imageScale = Math.min(scaleX, scaleY) * 0.95
-                                        // 居中显示
-                                        var scaledWidth = displayImage.sourceSize.width * parent.parent.imageScale
-                                        var scaledHeight = displayImage.sourceSize.height * parent.parent.imageScale
-                                        parent.parent.imageX = (parent.parent.width - scaledWidth) / 2
-                                        parent.parent.imageY = (parent.parent.height - scaledHeight) / 2
-                                    }
-                                }
-                            }
-                        }
+                        // WebView {
+                        //     id: bomWebView
+                        //     anchors.fill: parent
+                        //     url: interactiveBomUrl ? interactiveBomUrl : "about:blank"
+                        // }
                     }
                 }
             }
@@ -1450,7 +1368,12 @@ FluContentPage{
                         FluComboBox {
                             id: cameraSelector
                             Layout.fillWidth: true
-                            model: [qsTr("顶部摄像头"), qsTr("底部摄像头")]
+                            model: [
+                                qsTr("顶部黑白"),
+                                qsTr("顶部彩色"),
+                                qsTr("底部黑白"),
+                                qsTr("底部彩色")
+                            ]
                             enabled: true
                             currentIndex: homePreviewRole
                             onCurrentIndexChanged: {
@@ -1461,7 +1384,7 @@ FluContentPage{
                         }
                     }
 
-                    // 摄像头预览
+                    // 摄像头预览（单窗口，按下拉框切换）
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
@@ -1471,22 +1394,29 @@ FluContentPage{
                         radius: 4
                         clip: true
 
-                        Image {
-                            id: topPreviewOutput
-                            anchors.fill: parent
-                            visible: homePreviewRole === 0 && cameraDeviceManager.topCameraOpened
-                            fillMode: Image.PreserveAspectFit
-                            cache: false
-                            source: "image://opencvpreview/top?" + openCvPreviewManager.topFrameToken
-                        }
+                        readonly property bool previewOpened: (homePreviewRole === 0 && cameraDeviceManager.topCameraOpened)
+                                                           || (homePreviewRole === 1 && cameraDeviceManager.topCameraOpened)
+                                                           || (homePreviewRole === 2 && cameraDeviceManager.bottomCameraOpened)
+                                                           || (homePreviewRole === 3 && cameraDeviceManager.bottomCameraOpened)
+                        readonly property string bwSource: homePreviewRole < 2
+                                                         ? ("image://opencvpreview/top?" + openCvPreviewManager.topFrameToken)
+                                                         : ("image://opencvpreview/bottom?" + openCvPreviewManager.bottomFrameToken)
+                        readonly property string colorSource: homePreviewRole < 2
+                                                            ? ("image://opencvpreview/top_color?" + openCvPreviewManager.topFrameToken)
+                                                            : ("image://opencvpreview/bottom_color?" + openCvPreviewManager.bottomFrameToken)
+                        readonly property bool showColor: homePreviewRole === 1 || homePreviewRole === 3
 
                         Image {
-                            id: bottomPreviewOutput
                             anchors.fill: parent
-                            visible: homePreviewRole === 1 && cameraDeviceManager.bottomCameraOpened
+                            visible: parent.previewOpened
                             fillMode: Image.PreserveAspectFit
                             cache: false
-                            source: "image://opencvpreview/bottom?" + openCvPreviewManager.bottomFrameToken
+                            source: parent.showColor ? parent.colorSource : parent.bwSource
+                        }
+
+                        DraggableFocusOverlay {
+                            anchors.fill: parent
+                            active: parent.previewOpened
                         }
 
                         Rectangle {
@@ -1494,7 +1424,7 @@ FluContentPage{
                             anchors.bottom: parent.bottom
                             anchors.rightMargin: 8
                             anchors.bottomMargin: 6
-                            visible: (homePreviewRole === 0 && cameraDeviceManager.topCameraOpened) || (homePreviewRole === 1 && cameraDeviceManager.bottomCameraOpened)
+                            visible: parent.previewOpened
                             radius: 4
                             color: FluTheme.dark ? Qt.rgba(0, 0, 0, 0.45) : Qt.rgba(1, 1, 1, 0.55)
                             width: homeFpsText.implicitWidth + 10
@@ -1503,7 +1433,7 @@ FluContentPage{
                             FluText {
                                 id: homeFpsText
                                 anchors.centerIn: parent
-                                text: homePreviewRole === 0
+                                text: homePreviewRole < 2
                                       ? qsTr("%1 FPS").arg(openCvPreviewManager.topFps.toFixed(1))
                                       : qsTr("%1 FPS").arg(openCvPreviewManager.bottomFps.toFixed(1))
                                 color: FluTheme.dark ? "#ffffff" : "#000000"
@@ -1511,15 +1441,24 @@ FluContentPage{
                             }
                         }
 
-                        // 摄像头离线提示
+                        FluText {
+                            anchors.bottom: parent.bottom
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            anchors.bottomMargin: 4
+                            text: parent.showColor ? qsTr("彩色") : qsTr("黑白")
+                            color: FluTheme.dark ? "#aaaaaa" : "#cccccc"
+                            font: FluTextStyle.Caption
+                            visible: parent.previewOpened
+                        }
+
                         FluText {
                             anchors.centerIn: parent
                             text: cameraDeviceManager.cameraNames.length === 0
-                                ? qsTr("未检测到摄像头")
-                                : ((isCurrentPreviewOpened() && currentPreviewCameraDevice() !== null) ? "" : qsTr("摄像头未打开"))
+                                  ? qsTr("未检测到摄像头")
+                                  : qsTr("摄像头未打开")
                             color: "#888888"
                             font: FluTextStyle.Body
-                            visible: text !== ""
+                            visible: !parent.previewOpened
                         }
                     }
                 }

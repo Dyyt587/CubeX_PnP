@@ -48,9 +48,6 @@ CameraDeviceManager::CameraDeviceManager(QObject *parent)
     m_workerThread->start();
 
     connect(m_mediaDevices, &QMediaDevices::videoInputsChanged, this, &CameraDeviceManager::refreshCameras);
-
-    m_scanTimer->setInterval(3000);
-    connect(m_scanTimer, &QTimer::timeout, this, &CameraDeviceManager::refreshCameras);
 }
 
 CameraDeviceManager::~CameraDeviceManager()
@@ -195,10 +192,7 @@ void CameraDeviceManager::closeBottomCamera()
 
 void CameraDeviceManager::startScanning()
 {
-    if (!m_scanTimer->isActive()) {
-        m_scanTimer->start();
-        refreshCameras();
-    }
+    refreshCameras();
 }
 
 void CameraDeviceManager::stopScanning()

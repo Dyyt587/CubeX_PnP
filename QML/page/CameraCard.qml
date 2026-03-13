@@ -268,6 +268,75 @@ Rectangle {
                     }
                 }
 
+                Item {
+                    id: colorOverlay
+                    anchors.fill: parent
+                    z: 5
+                    visible: cameraActive
+
+                    Rectangle {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: 1
+                        color: Qt.rgba(0.1, 1.0, 0.1, 0.8)
+                    }
+
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        height: 1
+                        color: Qt.rgba(0.1, 1.0, 0.1, 0.8)
+                    }
+
+                    Rectangle {
+                        id: focusBox
+                        width: 56
+                        height: 56
+                        x: (colorOverlay.width - width) / 2
+                        y: (colorOverlay.height - height) / 2
+                        color: "transparent"
+                        border.width: 2
+                        border.color: Qt.rgba(0.1, 1.0, 0.1, 0.95)
+                        radius: 2
+
+                        Behavior on x {
+                            NumberAnimation {
+                                duration: 180
+                                easing.type: Easing.OutCubic
+                            }
+                        }
+
+                        Behavior on y {
+                            NumberAnimation {
+                                duration: 180
+                                easing.type: Easing.OutCubic
+                            }
+                        }
+
+                        MouseArea {
+                            id: dragArea
+                            anchors.fill: parent
+                            cursorShape: Qt.OpenHandCursor
+                            drag.target: parent
+                            drag.axis: Drag.XAndYAxis
+                            drag.minimumX: 0
+                            drag.minimumY: 0
+                            drag.maximumX: colorOverlay.width - focusBox.width
+                            drag.maximumY: colorOverlay.height - focusBox.height
+
+                            onPressed: cursorShape = Qt.ClosedHandCursor
+
+                            onReleased: {
+                                cursorShape = Qt.OpenHandCursor
+                                focusBox.x = (colorOverlay.width - focusBox.width) / 2
+                                focusBox.y = (colorOverlay.height - focusBox.height) / 2
+                            }
+                        }
+                    }
+                }
+
                 Rectangle {
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
