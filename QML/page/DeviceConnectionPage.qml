@@ -2,6 +2,7 @@ import QtQuick 6.2
 import QtQuick.Controls 6.2
 import QtQuick.Layouts 6.2
 import QtMultimedia 6.2
+import "../component" as Components
 import FluentUI
 
 FluContentPage {
@@ -17,6 +18,12 @@ FluContentPage {
     property int selectedBaudRate: 115200
     property var availableComPorts: []
     property var availableBaudRates: [9600, 19200, 38400, 57600, 115200]
+    property string controllerConsoleText: ""
+    property bool autoReconnectEnabled: false
+    property bool manualDisconnectRequested: false
+    property bool reconnectAttemptInProgress: false
+    property string reconnectTargetComPort: ""
+    property int reconnectTargetBaudRate: 115200
 
     Component.onCompleted: {
         loadDevices()
@@ -36,6 +43,31 @@ FluContentPage {
         target: serialPortManager
         function onPortNamesChanged() {
             syncComPorts(serialPortManager.portNames)
+            if (root.autoReconnectEnabled && !serialPortManager.connected && root.reconnectTargetComPort) {
+                autoReconnectTimer.start()
+            }
+        }
+        function onConnectedChanged() {
+            var nowConnected = serialPortManager.connected
+            root.controllerStatus = serialPortManager.connected ? qsTr("已连接") : qsTr("未连接")
+            if (nowConnected) {
+                root.manualDisconnectRequested = false
+                root.reconnectAttemptInProgress = false
+                autoReconnectTimer.stop()
+                appendControllerConsole(qsTr("[系统] 串口已连接"))
+            } else {
+                appendControllerConsole(qsTr("[系统] 串口已断开"))
+                if (root.autoReconnectEnabled && !root.manualDisconnectRequested && root.reconnectTargetComPort) {
+                    autoReconnectTimer.start()
+                }
+            }
+        }
+        function onConsoleMessage(message) {
+            appendControllerConsole(message)
+        }
+        function onErrorOccurred(message) {
+            appendControllerConsole(qsTr("[错误] ") + message)
+            showInfo(message)
         }
     }
 
@@ -61,6 +93,49 @@ FluContentPage {
         }
     }
 
+    function appendControllerConsole(message) {
+        var now = new Date()
+        var hh = String(now.getHours()).padStart(2, "0")
+        var mm = String(now.getMinutes()).padStart(2, "0")
+        var ss = String(now.getSeconds()).padStart(2, "0")
+        var line = "[" + hh + ":" + mm + ":" + ss + "] " + message
+        controllerConsoleText = controllerConsoleText.length > 0
+                ? controllerConsoleText + "\n" + line
+                : line
+    }
+
+    function updateReconnectTarget(portName, baudRate) {
+        reconnectTargetComPort = portName
+        reconnectTargetBaudRate = baudRate
+    }
+
+    function tryAutoReconnect() {
+        if (!root.autoReconnectEnabled || serialPortManager.connected || !root.reconnectTargetComPort) {
+            autoReconnectTimer.stop()
+            root.reconnectAttemptInProgress = false
+            return
+        }
+        serialPortManager.refreshPorts()
+        if (root.availableComPorts.indexOf(root.reconnectTargetComPort) === -1) {
+            return
+        }
+        root.reconnectAttemptInProgress = true
+        if (serialPortManager.connectPort(root.reconnectTargetComPort, root.reconnectTargetBaudRate)) {
+            root.selectedComPort = root.reconnectTargetComPort
+            root.selectedBaudRate = root.reconnectTargetBaudRate
+            root.appendControllerConsole(qsTr("[系统] 自动重连成功: ") + root.reconnectTargetComPort + " @ " + root.reconnectTargetBaudRate)
+            root.showInfoBar(qsTr("串口已自动重连"))
+        }
+    }
+
+    Timer {
+        id: autoReconnectTimer
+        interval: 3000
+        repeat: true
+        running: false
+        onTriggered: root.tryAutoReconnect()
+    }
+
     FluScrollablePage {
         anchors.fill: parent
         leftPadding: 20
@@ -77,6 +152,7 @@ FluContentPage {
                 spacing: 15
 
                 CameraCard {
+                    cameraRole: 0
                     cameraTitle: qsTr("顶部摄像头")
                     cameraName: qsTr("顶部摄像头")
                     cameraStatus: cameraDeviceManager.topCameraConnected ? qsTr("已连接") : qsTr("未连接")
@@ -127,6 +203,7 @@ FluContentPage {
                 }
 
                 CameraCard {
+                    cameraRole: 1
                     cameraTitle: qsTr("底部摄像头")
                     cameraName: qsTr("底部摄像头")
                     cameraStatus: cameraDeviceManager.bottomCameraConnected ? qsTr("已连接") : qsTr("未连接")
@@ -178,163 +255,62 @@ FluContentPage {
             }
         }
 
-        FluGroupBox {
+        Components.SerialConnectionPanel {
             Layout.fillWidth: true
-            title: qsTr("控制器连接")
-            
-            Column {
-                width: parent.width
-                spacing: 15
-
-                // 连接状态
-                Row {
-                    width: parent.width
-                    spacing: 10
-
-                    FluText {
-                        text: qsTr("状态：")
-                        font.bold: true
+            controllerStatus: root.controllerStatus
+            selectedComPort: root.selectedComPort
+            selectedBaudRate: root.selectedBaudRate
+            availableComPorts: root.availableComPorts
+            availableBaudRates: root.availableBaudRates
+            consoleText: root.controllerConsoleText
+            autoReconnectEnabled: root.autoReconnectEnabled
+            onAutoReconnectToggled: (enabled) => {
+                root.autoReconnectEnabled = enabled
+                root.manualDisconnectRequested = false
+                if (enabled) {
+                    root.updateReconnectTarget(root.selectedComPort, root.selectedBaudRate)
+                    root.appendControllerConsole(qsTr("[系统] 自动重连已开启"))
+                    if (!serialPortManager.connected && root.reconnectTargetComPort) {
+                        autoReconnectTimer.start()
                     }
-
-                    Rectangle {
-                        width: 12
-                        height: 12
-                        radius: 6
-                        color: controllerStatus === qsTr("已连接") ? "#4caf50" : "#f44336"
-                    }
-
-                    FluText {
-                        text: controllerStatus
-                        color: controllerStatus === qsTr("已连接") ? "#4caf50" : "#f44336"
-                        font.bold: true
-                    }
-
-                    Item { Layout.fillWidth: true }
+                } else {
+                    autoReconnectTimer.stop()
+                    root.reconnectAttemptInProgress = false
+                    root.appendControllerConsole(qsTr("[系统] 自动重连已关闭"))
                 }
-
-                // 串口配置
-                Row {
-                    width: parent.width
-                    spacing: 15
-
-                    Column {
-                        spacing: 5
-                        width: parent.width * 0.45
-
-                        FluText {
-                            text: qsTr("串口")
-                            font.pixelSize: 12
-                        }
-
-                        FluComboBox {
-                            id: comPortCombo
-                            width: parent.width
-                            model: availableComPorts
-                            currentIndex: Math.max(0, availableComPorts.indexOf(selectedComPort))
-                            onCurrentIndexChanged: {
-                                if (currentIndex >= 0 && currentIndex < availableComPorts.length) {
-                                    selectedComPort = availableComPorts[currentIndex]
-                                }
-                            }
-                        }
-                    }
-
-                    Column {
-                        spacing: 5
-                        width: parent.width * 0.45
-
-                        FluText {
-                            text: qsTr("波特率")
-                            font.pixelSize: 12
-                        }
-
-                        FluComboBox {
-                            id: baudRateCombo
-                            width: parent.width
-                            model: availableBaudRates
-                            currentIndex: Math.max(0, availableBaudRates.indexOf(selectedBaudRate))
-                            onCurrentIndexChanged: {
-                                if (currentIndex >= 0 && currentIndex < availableBaudRates.length) {
-                                    selectedBaudRate = availableBaudRates[currentIndex]
-                                }
-                            }
-                        }
+            }
+            onComPortSelected: (portName) => { root.selectedComPort = portName }
+            onBaudRateSelected: (baudRate) => { root.selectedBaudRate = baudRate }
+            onToggleConnectionRequested: {
+                if (!root.selectedComPort) {
+                    showInfo(qsTr("未检测到可用串口"))
+                    return
+                }
+                if (root.controllerStatus === qsTr("已连接")) {
+                    root.manualDisconnectRequested = true
+                    autoReconnectTimer.stop()
+                    serialPortManager.disconnectPort()
+                    showInfo(qsTr("已断开控制器连接"))
+                } else {
+                    root.manualDisconnectRequested = false
+                    root.updateReconnectTarget(root.selectedComPort, root.selectedBaudRate)
+                    if (serialPortManager.connectPort(root.selectedComPort, root.selectedBaudRate)) {
+                        appendControllerConsole(qsTr("[系统] 打开串口 ") + root.selectedComPort + " @ " + root.selectedBaudRate)
+                        showInfo(qsTr("已连接控制器") + " (" + root.selectedComPort + " @ " + root.selectedBaudRate + " baud)")
                     }
                 }
-
-                // 连接/断开按钮
-                Row {
-                    width: parent.width
-                    spacing: 10
-
-                    FluButton {
-                        text: controllerStatus === qsTr("已连接") ? qsTr("断开连接") : qsTr("连接")
-                        // type: controllerStatus === qsTr("已连接") ? FluButtonType.Default : FluButtonType.Primary
-                        width: parent.width * 0.3
-                        onClicked: {
-                            if (!selectedComPort) {
-                                showInfo(qsTr("未检测到可用串口"))
-                                return
-                            }
-                            if (controllerStatus === qsTr("已连接")) {
-                                controllerStatus = qsTr("未连接")
-                                showInfo(qsTr("已断开控制器连接"))
-                            } else {
-                                controllerStatus = qsTr("已连接")
-                                showInfo(qsTr("已连接控制器") + " (" + selectedComPort + " @ " + selectedBaudRate + " baud)")
-                            }
-                        }
-                    }
-
-                    FluButton {
-                        text: qsTr("重新扫描")
-                        width: parent.width * 0.3
-                        onClicked: {
-                            serialPortManager.refreshPorts()
-                            showInfo(qsTr("已扫描可用串口：") + availableComPorts.length)
-                        }
-                    }
-
-                    Item { Layout.fillWidth: true }
+            }
+            onRescanRequested: {
+                serialPortManager.refreshPorts()
+                appendControllerConsole(qsTr("[系统] 已请求重新扫描串口"))
+                showInfo(qsTr("正在扫描可用串口"))
+            }
+            onSendRequested: (text) => {
+                if (!serialPortManager.connected) {
+                    showInfo(qsTr("串口未连接"))
+                    return
                 }
-
-                // 串口信息显示
-                Rectangle {
-                    width: parent.width
-                    height: 80
-                    color: FluTheme.dark ? "#1a1a1a" : "#fafafa"
-                    radius: 6
-                    border.color: FluTheme.dark ? "#3a3a3a" : "#e0e0e0"
-                    border.width: 1
-
-                    Column {
-                        anchors.fill: parent
-                        anchors.margins: 10
-                        spacing: 5
-
-                        FluText {
-                            text: qsTr("连接信息")
-                            font.pixelSize: 12
-                            font.bold: true
-                        }
-
-                        FluText {
-                            text: qsTr("串口") + ": " + (selectedComPort ? selectedComPort : "--")
-                            font.pixelSize: 11
-                        }
-
-                        FluText {
-                            text: qsTr("波特率") + ": " + selectedBaudRate + " baud"
-                            font.pixelSize: 11
-                        }
-
-                        FluText {
-                            text: qsTr("状态") + ": " + controllerStatus
-                            font.pixelSize: 11
-                            color: controllerStatus === qsTr("已连接") ? "#4caf50" : "#f44336"
-                        }
-                    }
-                }
+                serialPortManager.sendWithConsole(text)
             }
         }
     }

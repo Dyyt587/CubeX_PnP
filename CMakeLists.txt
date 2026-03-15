@@ -8,7 +8,7 @@ set(CMAKE_AUTORCC ON)
 # 设置 OpenCV 路径
 set(OpenCV_DIR "C:/Users/lzj/Github/OpenCV_MingW/OpenCV4.11_mingw13.1.0")
 find_package(FluentUI)
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Network Multimedia Concurrent)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Network Multimedia Concurrent SerialPort)
 find_package(OpenCV REQUIRED)
 
 qt_standard_project_setup(REQUIRES 6.8)
@@ -36,6 +36,7 @@ qt_add_qml_module(appCubeX_PnP
         QML_FILES
         QML/AppMainWindow.qml
         QML/component/DraggableFocusOverlay.qml
+        QML/component/SerialConnectionPanel.qml
         QML/page/CameraCard.qml
         QML/page/DeviceConnectionPage.qml
         QML/page/HomePage.qml
@@ -64,6 +65,7 @@ target_link_libraries(appCubeX_PnP
         Qt6::Qml
         Qt6::Multimedia
         Qt6::Concurrent
+        Qt6::SerialPort
 )
 target_include_directories(appCubeX_PnP PRIVATE ${OpenCV_INCLUDE_DIRS})
 

@@ -1,13 +1,54 @@
 #include "OpenCvPreviewManager.h"
 
+#include <algorithm>
 #include <QCamera>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QPointF>
+#include <QRectF>
 #include <QVideoFrame>
 
 #include <opencv2/imgproc.hpp>
 
 #include <QtConcurrent/QtConcurrent>
+
+namespace {
+QRect normalizedRectFromPoints(const QVariantList &points, int imageWidth, int imageHeight)
+{
+    if (points.size() < 4 || imageWidth <= 0 || imageHeight <= 0) {
+        return QRect();
+    }
+
+    qreal minX = 1.0;
+    qreal minY = 1.0;
+    qreal maxX = 0.0;
+    qreal maxY = 0.0;
+
+    for (int i = 0; i < 4; ++i) {
+        QPointF p;
+        const QVariant &v = points.at(i);
+        if (v.canConvert<QPointF>()) {
+            p = v.toPointF();
+        } else {
+            const QVariantMap m = v.toMap();
+            p.setX(m.value(QStringLiteral("x")).toDouble());
+            p.setY(m.value(QStringLiteral("y")).toDouble());
+        }
+        p.setX(std::clamp(p.x(), 0.0, 1.0));
+        p.setY(std::clamp(p.y(), 0.0, 1.0));
+        minX = qMin(minX, p.x());
+        minY = qMin(minY, p.y());
+        maxX = qMax(maxX, p.x());
+        maxY = qMax(maxY, p.y());
+    }
+
+    const int x = std::clamp(static_cast<int>(minX * imageWidth), 0, imageWidth - 1);
+    const int y = std::clamp(static_cast<int>(minY * imageHeight), 0, imageHeight - 1);
+    const int w = std::clamp(static_cast<int>((maxX - minX) * imageWidth), 1, imageWidth - x);
+    const int h = std::clamp(static_cast<int>((maxY - minY) * imageHeight), 1, imageHeight - y);
+    return QRect(x, y, w, h);
+}
+}
 
 OpenCvPreviewImageProvider::OpenCvPreviewImageProvider(OpenCvPreviewManager *manager)
     : QQuickImageProvider(QQuickImageProvider::Image),
@@ -73,6 +114,26 @@ int OpenCvPreviewManager::topFrameToken() const
 int OpenCvPreviewManager::bottomFrameToken() const
 {
     return m_bottomFrameToken;
+}
+
+int OpenCvPreviewManager::topTemplateToken() const
+{
+    return m_topTemplateToken;
+}
+
+int OpenCvPreviewManager::bottomTemplateToken() const
+{
+    return m_bottomTemplateToken;
+}
+
+int OpenCvPreviewManager::topMatchPreviewToken() const
+{
+    return m_topMatchPreviewToken;
+}
+
+int OpenCvPreviewManager::bottomMatchPreviewToken() const
+{
+    return m_bottomMatchPreviewToken;
 }
 
 double OpenCvPreviewManager::topFps() const
@@ -204,7 +265,155 @@ QImage OpenCvPreviewManager::imageForId(const QString &id) const
     if (key == QStringLiteral("bottom_color")) {
         return m_bottomColorImage;
     }
+    if (key == QStringLiteral("top_template")) {
+        return m_topTemplateImage;
+    }
+    if (key == QStringLiteral("bottom_template")) {
+        return m_bottomTemplateImage;
+    }
+    if (key == QStringLiteral("top_match_preview")) {
+        return m_topMatchPreviewImage;
+    }
+    if (key == QStringLiteral("bottom_match_preview")) {
+        return m_bottomMatchPreviewImage;
+    }
     return QImage();
+}
+
+bool OpenCvPreviewManager::captureTemplate(int cameraRole, const QVariantList &points)
+{
+    const bool isTop = (cameraRole == 0);
+    QImage source;
+    {
+        QMutexLocker locker(&m_imageMutex);
+        source = isTop ? m_topColorImage : m_bottomColorImage;
+    }
+    if (source.isNull()) {
+        return false;
+    }
+
+    const QRect roi = normalizedRectFromPoints(points, source.width(), source.height());
+    if (!roi.isValid()) {
+        return false;
+    }
+
+    const QImage tpl = source.copy(roi).copy();
+    if (tpl.isNull()) {
+        return false;
+    }
+
+    {
+        QMutexLocker locker(&m_imageMutex);
+        if (isTop) {
+            m_topTemplateImage = tpl;
+            ++m_topTemplateToken;
+        } else {
+            m_bottomTemplateImage = tpl;
+            ++m_bottomTemplateToken;
+        }
+    }
+
+    if (isTop) {
+        emit topTemplateTokenChanged();
+    } else {
+        emit bottomTemplateTokenChanged();
+    }
+    return true;
+}
+
+QVariantMap OpenCvPreviewManager::runTemplateMatch(int cameraRole, const QVariantList &points)
+{
+    return runTemplateMatchInRegion(cameraRole, points, QVariantList());
+}
+
+QVariantMap OpenCvPreviewManager::runTemplateMatchInRegion(int cameraRole, const QVariantList &templatePoints,
+                                                           const QVariantList &searchRegionPoints)
+{
+    QVariantMap result;
+    result.insert(QStringLiteral("success"), false);
+    result.insert(QStringLiteral("score"), 0.0);
+    result.insert(QStringLiteral("message"), tr("模板匹配失败"));
+
+    QImage source;
+    QImage tpl;
+    {
+        QMutexLocker locker(&m_imageMutex);
+        const bool isTop = (cameraRole == 0);
+        source = isTop ? m_topColorImage : m_bottomColorImage;
+        tpl = isTop ? m_topTemplateImage : m_bottomTemplateImage;
+    }
+
+    if (source.isNull()) {
+        result.insert(QStringLiteral("message"), tr("当前画面为空"));
+        return result;
+    }
+    if (tpl.isNull()) {
+        // Allow one-click flow: if no template exists, capture once from current four-point box.
+        if (!captureTemplate(cameraRole, templatePoints)) {
+            result.insert(QStringLiteral("message"), tr("模板尚未拍摄"));
+            return result;
+        }
+        QMutexLocker locker(&m_imageMutex);
+        tpl = (cameraRole == 0) ? m_topTemplateImage : m_bottomTemplateImage;
+    }
+
+    const QRect searchRoi = searchRegionPoints.size() >= 4
+            ? normalizedRectFromPoints(searchRegionPoints, source.width(), source.height())
+            : source.rect();
+    if (!searchRoi.isValid()) {
+        result.insert(QStringLiteral("message"), tr("匹配区域无效"));
+        return result;
+    }
+
+    const QImage searchImage = source.copy(searchRoi).copy();
+    const QImage srcGray = searchImage.convertToFormat(QImage::Format_Grayscale8);
+    const QImage tplGray = tpl.convertToFormat(QImage::Format_Grayscale8);
+    if (srcGray.width() < tplGray.width() || srcGray.height() < tplGray.height()) {
+        result.insert(QStringLiteral("message"), tr("模板尺寸大于当前画面"));
+        return result;
+    }
+
+    cv::Mat src(srcGray.height(), srcGray.width(), CV_8UC1,
+                const_cast<uchar *>(srcGray.constBits()), srcGray.bytesPerLine());
+    cv::Mat tem(tplGray.height(), tplGray.width(), CV_8UC1,
+                const_cast<uchar *>(tplGray.constBits()), tplGray.bytesPerLine());
+
+    cv::Mat matchResult;
+    cv::matchTemplate(src, tem, matchResult, cv::TM_CCOEFF_NORMED);
+
+    double minVal = 0.0;
+    double maxVal = 0.0;
+    cv::Point minLoc;
+    cv::Point maxLoc;
+    cv::minMaxLoc(matchResult, &minVal, &maxVal, &minLoc, &maxLoc);
+
+    result.insert(QStringLiteral("success"), true);
+    result.insert(QStringLiteral("score"), maxVal);
+    result.insert(QStringLiteral("x"), maxLoc.x + searchRoi.x());
+    result.insert(QStringLiteral("y"), maxLoc.y + searchRoi.y());
+    result.insert(QStringLiteral("width"), tplGray.width());
+    result.insert(QStringLiteral("height"), tplGray.height());
+    result.insert(QStringLiteral("message"), tr("匹配完成"));
+
+    const QRect matchedRect(maxLoc.x + searchRoi.x(), maxLoc.y + searchRoi.y(), tplGray.width(), tplGray.height());
+    const QImage matchedPreview = source.copy(matchedRect).copy();
+    {
+        QMutexLocker locker(&m_imageMutex);
+        if (cameraRole == 0) {
+            m_topMatchPreviewImage = matchedPreview;
+            ++m_topMatchPreviewToken;
+        } else {
+            m_bottomMatchPreviewImage = matchedPreview;
+            ++m_bottomMatchPreviewToken;
+        }
+    }
+    if (cameraRole == 0) {
+        emit topMatchPreviewTokenChanged();
+    } else {
+        emit bottomMatchPreviewTokenChanged();
+    }
+
+    return result;
 }
 
 void OpenCvPreviewManager::processTopFrame(const QVideoFrame &frame)

@@ -7,7 +7,7 @@ import FluentUI
 Rectangle {
     id: cameraCard
     width: parent.width
-    height: 510
+    height: 880
     color: FluTheme.dark ? "#2a2a2a" : "#f5f5f5"
     radius: 8
     border.color: FluTheme.dark ? "#3a3a3a" : "#e0e0e0"
@@ -37,6 +37,22 @@ Rectangle {
     property bool cameraConnecting: false
     property bool bwFlip: false
     property bool colorFlip: false
+    property int cameraRole: 0 // 0: top, 1: bottom
+    property string templateStatus: qsTr("未拍摄模板")
+    property real templateMatchScore: 0
+    property bool templateMatchVisible: false
+    property real templateMatchX: 0
+    property real templateMatchY: 0
+    property real templateMatchW: 0
+    property real templateMatchH: 0
+    property bool continuousMatchingEnabled: false
+    property string templatePreviewSource: cameraRole === 0
+                                           ? "image://opencvpreview/top_template?" + openCvPreviewManager.topTemplateToken
+                                           : "image://opencvpreview/bottom_template?" + openCvPreviewManager.bottomTemplateToken
+    property string matchPreviewSource: cameraRole === 0
+                                        ? "image://opencvpreview/top_color?" + openCvPreviewManager.topFrameToken
+                                        : "image://opencvpreview/bottom_color?" + openCvPreviewManager.bottomFrameToken
+    property real templatePreviewSide: 320
 
     property string spare2Label: qsTr("备用2")
     property string spare3Label: qsTr("备用3")
@@ -71,6 +87,117 @@ Rectangle {
     signal binParam2Updated(real value)
     signal binInvertUpdated(bool value)
 
+    function clamp01(value) {
+        return Math.max(0, Math.min(1, value))
+    }
+
+    function imageContentRect(imageItem) {
+        if (!imageItem)
+            return Qt.rect(0, 0, 1, 1)
+
+        var paintedW = imageItem.paintedWidth > 0 ? imageItem.paintedWidth : imageItem.width
+        var paintedH = imageItem.paintedHeight > 0 ? imageItem.paintedHeight : imageItem.height
+        var offsetX = imageItem.x + (imageItem.width - paintedW) / 2
+        var offsetY = imageItem.y + (imageItem.height - paintedH) / 2
+        return Qt.rect(offsetX, offsetY, Math.max(1, paintedW), Math.max(1, paintedH))
+    }
+
+    function currentColorContentRect() {
+        if (colorImageA.paintedWidth > 0 && colorImageA.paintedHeight > 0)
+            return imageContentRect(colorImageA)
+        if (colorImageB.paintedWidth > 0 && colorImageB.paintedHeight > 0)
+            return imageContentRect(colorImageB)
+        return Qt.rect(0, 0, Math.max(1, colorOverlay.width), Math.max(1, colorOverlay.height))
+    }
+
+    function applyTemplateMatchResult(result, showError) {
+        if (result.success) {
+            templateStatus = qsTr("匹配成功")
+            templateMatchScore = result.score
+            var w = Math.max(1, cameraCard.resWidth)
+            var h = Math.max(1, cameraCard.resHeight)
+            var matchRect = imageContentRect(matchPreviewImage)
+            var colorRect = currentColorContentRect()
+            var normalizedX = clamp01(result.x / w)
+            var normalizedY = clamp01(result.y / h)
+            var normalizedW = clamp01(matchRegionBox.width / matchRect.width)
+            var normalizedH = clamp01(matchRegionBox.height / matchRect.height)
+            templateMatchX = colorRect.x + normalizedX * colorRect.width
+            templateMatchY = colorRect.y + normalizedY * colorRect.height
+            templateMatchW = normalizedW * colorRect.width
+            templateMatchH = normalizedH * colorRect.height
+            templateMatchVisible = true
+            return
+        }
+
+        templateStatus = result.message ? result.message : qsTr("匹配失败")
+        templateMatchVisible = false
+        if (showError) {
+            cameraCard.infoRequested(templateStatus)
+        }
+    }
+
+    function performTemplateMatch(silent) {
+        if (!cameraActive) {
+            return
+        }
+        var result = openCvPreviewManager.runTemplateMatchInRegion(
+                    cameraRole,
+                    selectedTemplatePoints(),
+                    fullFramePoints())
+        applyTemplateMatchResult(result, !silent)
+    }
+
+    function fullFramePoints() {
+        return [
+            Qt.point(0, 0),
+            Qt.point(1, 0),
+            Qt.point(1, 1),
+            Qt.point(0, 1)
+        ]
+    }
+
+    function selectedMatchRegionPoints() {
+        var rect = imageContentRect(matchPreviewImage)
+        var left = clamp01((matchRegionBox.x - rect.x) / rect.width)
+        var top = clamp01((matchRegionBox.y - rect.y) / rect.height)
+        var right = clamp01((matchRegionBox.x + matchRegionBox.width - rect.x) / rect.width)
+        var bottom = clamp01((matchRegionBox.y + matchRegionBox.height - rect.y) / rect.height)
+        return [
+            Qt.point(left, top),
+            Qt.point(right, top),
+            Qt.point(right, bottom),
+            Qt.point(left, bottom)
+        ]
+    }
+
+    function clampMatchRegionBox() {
+        if (!matchRegionBox || !matchPreviewImage)
+            return
+        var rect = imageContentRect(matchPreviewImage)
+        var minSize = 0
+        if (matchRegionBox.width < minSize)
+            matchRegionBox.width = minSize
+        if (matchRegionBox.height < minSize)
+            matchRegionBox.height = minSize
+        if (matchRegionBox.width > rect.width)
+            matchRegionBox.width = rect.width
+        if (matchRegionBox.height > rect.height)
+            matchRegionBox.height = rect.height
+        if (matchRegionBox.x < rect.x)
+            matchRegionBox.x = rect.x
+        if (matchRegionBox.y < rect.y)
+            matchRegionBox.y = rect.y
+        if (matchRegionBox.x + matchRegionBox.width > rect.x + rect.width)
+            matchRegionBox.x = Math.max(rect.x, rect.x + rect.width - matchRegionBox.width)
+        if (matchRegionBox.y + matchRegionBox.height > rect.y + rect.height)
+            matchRegionBox.y = Math.max(rect.y, rect.y + rect.height - matchRegionBox.height)
+    }
+
+    function selectedTemplatePoints() {
+        return selectedMatchRegionPoints()
+    }
+
     onCameraActiveChanged: {
         if (cameraActive && sharedCamera) {
             sharedCamera.exposureCompensation = cameraBrightness
@@ -103,6 +230,14 @@ Rectangle {
             cameraConnecting = false
             if (connectToggleAction) connectToggleAction()
         }
+    }
+
+    Timer {
+        id: continuousMatchTimer
+        interval: 400
+        repeat: true
+        running: cameraActive && continuousMatchingEnabled
+        onTriggered: cameraCard.performTemplateMatch(true)
     }
 
     Column {
@@ -333,6 +468,34 @@ Rectangle {
                                 focusBox.x = (colorOverlay.width - focusBox.width) / 2
                                 focusBox.y = (colorOverlay.height - focusBox.height) / 2
                             }
+                        }
+                    }
+
+                    Rectangle {
+                        id: templateMatchBox
+                        x: cameraCard.templateMatchX
+                        y: cameraCard.templateMatchY
+                        width: cameraCard.templateMatchW
+                        height: cameraCard.templateMatchH
+                        visible: cameraCard.templateMatchVisible
+                        color: "transparent"
+                        border.width: 2
+                        border.color: "#ff9800"
+                        radius: 2
+
+                        readonly property real crossSize: Math.min(width, height) / 5
+
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: parent.crossSize
+                            height: 2
+                            color: "#ff9800"
+                        }
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: 2
+                            height: parent.crossSize
+                            color: "#ff9800"
                         }
                     }
                 }
@@ -652,6 +815,262 @@ Rectangle {
                     from: spare4From; to: spare4To
                     value: spare4Value
                     onValueChanged: spare4Value = value
+                }
+            }
+        }
+
+        Rectangle {
+            width: parent.width
+            height: 400
+            radius: 6
+            color: FluTheme.dark ? "#1f1f1f" : "#f8f8f8"
+            border.color: FluTheme.dark ? "#3a3a3a" : "#dfdfdf"
+            border.width: 1
+
+            Column {
+                anchors.fill: parent
+                anchors.margins: 10
+                spacing: 8
+
+                Row {
+                    width: parent.width
+                    spacing: 12
+
+                    FluText {
+                        text: qsTr("模板匹配")
+                        font.pixelSize: 12
+                        font.bold: true
+                    }
+
+                    FluButton {
+                        text: qsTr("拍摄模板")
+                        enabled: cameraActive
+                        onClicked: {
+                            if (!cameraActive) {
+                                cameraCard.infoRequested(qsTr("请先连接并打开摄像头"))
+                                return
+                            }
+                            var ok = openCvPreviewManager.captureTemplate(cameraRole, selectedTemplatePoints())
+                            if (ok) {
+                                templateStatus = qsTr("模板已更新")
+                                templateMatchVisible = false
+                                cameraCard.infoRequested(qsTr("已使用四点框区域拍摄模板"))
+                            } else {
+                                templateStatus = qsTr("模板拍摄失败")
+                                cameraCard.infoRequested(qsTr("模板拍摄失败"))
+                            }
+                        }
+                    }
+
+                    FluButton {
+                        text: qsTr("执行匹配")
+                        enabled: cameraActive
+                        onClicked: {
+                            if (!cameraActive) {
+                                cameraCard.infoRequested(qsTr("请先连接并打开摄像头"))
+                                return
+                            }
+                            cameraCard.performTemplateMatch(false)
+                        }
+                    }
+
+                    FluCheckBox {
+                        text: qsTr("连续匹配")
+                        checked: continuousMatchingEnabled
+                        onCheckedChanged: continuousMatchingEnabled = checked
+                    }
+                }
+
+                FluText {
+                    text: qsTr("状态: ") + templateStatus + qsTr("   分数: ") + templateMatchScore.toFixed(3)
+                    font.pixelSize: 10
+                    color: FluTheme.dark ? "#cfcfcf" : "#4d4d4d"
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 12
+                    height: cameraCard.templatePreviewSide
+
+                    // 固定大小背景框，防止内部动态尺寸预览影响右侧画面位置
+                    Rectangle {
+                        width: cameraCard.templatePreviewSide
+                        height: cameraCard.templatePreviewSide
+                        radius: 4
+                        color: FluTheme.dark ? "#111111" : "#f0f0f0"
+                        border.color: FluTheme.dark ? "#3a3a3a" : "#d9d9d9"
+                        border.width: 1
+                        clip: true
+
+                        // 动态尺寸的模板预览，居中放置在固定背景框内
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: Math.max(4, matchRegionBox.width)
+                            height: Math.max(4, matchRegionBox.height)
+                            radius: 3
+                            color: FluTheme.dark ? "#151515" : "#ffffff"
+                            border.color: "#03a9f4"
+                            border.width: 1
+
+                            Image {
+                                anchors.fill: parent
+                                anchors.margins: 2
+                                source: templatePreviewSource
+                                fillMode: Image.Stretch
+                                cache: false
+                            }
+                        }
+
+                        FluText {
+                            anchors.left: parent.left
+                            anchors.bottom: parent.bottom
+                            anchors.leftMargin: 4
+                            anchors.bottomMargin: 2
+                            text: qsTr("模板预览")
+                            font.pixelSize: 9
+                            color: FluTheme.dark ? "#bbbbbb" : "#666666"
+                        }
+                    }
+
+                    Rectangle {
+                        id: matchPreviewFrame
+                        width: cameraCard.templatePreviewSide
+                        height: cameraCard.templatePreviewSide
+                        radius: 4
+                        color: FluTheme.dark ? "#151515" : "#ffffff"
+                        border.color: FluTheme.dark ? "#3a3a3a" : "#d9d9d9"
+                        border.width: 1
+
+                        property real normLeft: 0.2
+                        property real normTop: 0.2
+                        property real normBoxW: 0.6
+                        property real normBoxH: 0.6
+                        property bool userInteracting: false
+
+                        function reflowBox() {
+                            if (userInteracting) return
+                            var rect = cameraCard.imageContentRect(matchPreviewImage)
+                            matchRegionBox.x = rect.x + normLeft * rect.width
+                            matchRegionBox.y = rect.y + normTop * rect.height
+                            matchRegionBox.width = normBoxW * rect.width
+                            matchRegionBox.height = normBoxH * rect.height
+                        }
+
+                        function saveNorm() {
+                            var rect = cameraCard.imageContentRect(matchPreviewImage)
+                            normLeft = cameraCard.clamp01((matchRegionBox.x - rect.x) / rect.width)
+                            normTop = cameraCard.clamp01((matchRegionBox.y - rect.y) / rect.height)
+                            normBoxW = cameraCard.clamp01(matchRegionBox.width / rect.width)
+                            normBoxH = cameraCard.clamp01(matchRegionBox.height / rect.height)
+                        }
+
+                        Image {
+                            id: matchPreviewImage
+                            anchors.fill: parent
+                            anchors.margins: 4
+                            source: matchPreviewSource
+                            fillMode: Image.PreserveAspectFit
+                            cache: false
+
+                            onPaintedWidthChanged: matchPreviewFrame.reflowBox()
+                            onPaintedHeightChanged: matchPreviewFrame.reflowBox()
+                            onWidthChanged: matchPreviewFrame.reflowBox()
+                            onHeightChanged: matchPreviewFrame.reflowBox()
+                        }
+
+                        Rectangle {
+                            id: matchRegionBox
+                            color: "transparent"
+                            border.width: 2
+                            border.color: "#03a9f4"
+                            radius: 2
+
+                            MouseArea {
+                                anchors.fill: parent
+                                acceptedButtons: Qt.LeftButton
+                                preventStealing: true
+                                propagateComposedEvents: false
+                                scrollGestureEnabled: false
+                                cursorShape: Qt.OpenHandCursor
+                                drag.target: parent
+                                drag.axis: Drag.XAndYAxis
+                                drag.minimumX: cameraCard.imageContentRect(matchPreviewImage).x
+                                drag.minimumY: cameraCard.imageContentRect(matchPreviewImage).y
+                                drag.maximumX: Math.max(cameraCard.imageContentRect(matchPreviewImage).x,
+                                                        cameraCard.imageContentRect(matchPreviewImage).x + cameraCard.imageContentRect(matchPreviewImage).width - matchRegionBox.width)
+                                drag.maximumY: Math.max(cameraCard.imageContentRect(matchPreviewImage).y,
+                                                        cameraCard.imageContentRect(matchPreviewImage).y + cameraCard.imageContentRect(matchPreviewImage).height - matchRegionBox.height)
+                                onPressed: (mouse) => {
+                                    mouse.accepted = true
+                                        matchPreviewFrame.userInteracting = true
+                                    cursorShape = Qt.ClosedHandCursor
+                                }
+                                onReleased: {
+                                    cursorShape = Qt.OpenHandCursor
+                                    cameraCard.clampMatchRegionBox()
+                                    matchPreviewFrame.saveNorm()
+                                        matchPreviewFrame.userInteracting = false
+                                }
+                            }
+
+                            Rectangle {
+                                id: resizeHandle
+                                width: 12
+                                height: 12
+                                radius: 2
+                                color: "#03a9f4"
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    acceptedButtons: Qt.LeftButton
+                                    preventStealing: true
+                                    propagateComposedEvents: false
+                                    scrollGestureEnabled: false
+                                    cursorShape: Qt.SizeFDiagCursor
+                                    property real startMouseX: 0
+                                    property real startMouseY: 0
+                                    property real startW: 0
+                                    property real startH: 0
+
+                                    onPressed: (mouse) => {
+                                        mouse.accepted = true
+                                            matchPreviewFrame.userInteracting = true
+                                        startMouseX = mouse.x
+                                        startMouseY = mouse.y
+                                        startW = matchRegionBox.width
+                                        startH = matchRegionBox.height
+                                    }
+
+                                    onPositionChanged: (mouse) => {
+                                        var rect = cameraCard.imageContentRect(matchPreviewImage)
+                                        var dw = mouse.x - startMouseX
+                                        var dh = mouse.y - startMouseY
+                                        matchRegionBox.width = Math.max(0, Math.min(rect.x + rect.width - matchRegionBox.x, startW + dw))
+                                        matchRegionBox.height = Math.max(0, Math.min(rect.y + rect.height - matchRegionBox.y, startH + dh))
+                                        matchPreviewFrame.saveNorm()
+                                    }
+
+                                        onReleased: {
+                                            cameraCard.clampMatchRegionBox()
+                                            matchPreviewFrame.saveNorm()
+                                            matchPreviewFrame.userInteracting = false
+                                        }
+                                }
+                            }
+                        }
+
+                        FluText {
+                            anchors.left: parent.left
+                            anchors.bottom: parent.bottom
+                            anchors.leftMargin: 6
+                            anchors.bottomMargin: 4
+                            text: qsTr("模板匹配预览(全图搜索/蓝框为模板区域)")
+                            font.pixelSize: 10
+                            color: FluTheme.dark ? "#bbbbbb" : "#666666"
+                        }
+                    }
                 }
             }
         }

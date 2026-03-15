@@ -9,6 +9,8 @@
 #include <QVideoSink>
 #include <QElapsedTimer>
 #include <QAtomicInt>
+#include <QVariantList>
+#include <QVariantMap>
 
 class QCamera;
 class QVideoFrame;
@@ -31,6 +33,10 @@ class OpenCvPreviewManager : public QObject
     Q_OBJECT
     Q_PROPERTY(int topFrameToken READ topFrameToken NOTIFY topFrameTokenChanged)
     Q_PROPERTY(int bottomFrameToken READ bottomFrameToken NOTIFY bottomFrameTokenChanged)
+    Q_PROPERTY(int topTemplateToken READ topTemplateToken NOTIFY topTemplateTokenChanged)
+    Q_PROPERTY(int bottomTemplateToken READ bottomTemplateToken NOTIFY bottomTemplateTokenChanged)
+    Q_PROPERTY(int topMatchPreviewToken READ topMatchPreviewToken NOTIFY topMatchPreviewTokenChanged)
+    Q_PROPERTY(int bottomMatchPreviewToken READ bottomMatchPreviewToken NOTIFY bottomMatchPreviewTokenChanged)
     Q_PROPERTY(double topFps READ topFps NOTIFY topFpsChanged)
     Q_PROPERTY(double bottomFps READ bottomFps NOTIFY bottomFpsChanged)
     Q_PROPERTY(double topProcessingMs READ topProcessingMs NOTIFY topProcessingMsChanged)
@@ -67,6 +73,10 @@ public:
 
     int topFrameToken() const;
     int bottomFrameToken() const;
+    int topTemplateToken() const;
+    int bottomTemplateToken() const;
+    int topMatchPreviewToken() const;
+    int bottomMatchPreviewToken() const;
     double topFps() const;
     double bottomFps() const;
     double topProcessingMs() const;
@@ -105,6 +115,10 @@ public:
 
     Q_INVOKABLE void setTopCamera(QObject *cameraObject);
     Q_INVOKABLE void setBottomCamera(QObject *cameraObject);
+    Q_INVOKABLE bool captureTemplate(int cameraRole, const QVariantList &points);
+    Q_INVOKABLE QVariantMap runTemplateMatch(int cameraRole, const QVariantList &points);
+    Q_INVOKABLE QVariantMap runTemplateMatchInRegion(int cameraRole, const QVariantList &templatePoints,
+                                                     const QVariantList &searchRegionPoints);
 
     QQuickImageProvider *createImageProvider();
     QImage imageForId(const QString &id) const;
@@ -112,6 +126,10 @@ public:
 signals:
     void topFrameTokenChanged();
     void bottomFrameTokenChanged();
+    void topTemplateTokenChanged();
+    void bottomTemplateTokenChanged();
+    void topMatchPreviewTokenChanged();
+    void bottomMatchPreviewTokenChanged();
     void topFpsChanged();
     void bottomFpsChanged();
     void topBinAlgorithmChanged();
@@ -151,8 +169,16 @@ private:
     QImage m_topColorImage;
     QImage m_bottomBwImage;
     QImage m_bottomColorImage;
+    QImage m_topTemplateImage;
+    QImage m_bottomTemplateImage;
+    QImage m_topMatchPreviewImage;
+    QImage m_bottomMatchPreviewImage;
     int m_topFrameToken;
     int m_bottomFrameToken;
+    int m_topTemplateToken = 0;
+    int m_bottomTemplateToken = 0;
+    int m_topMatchPreviewToken = 0;
+    int m_bottomMatchPreviewToken = 0;
     int m_topFrameCount;
     int m_bottomFrameCount;
     qint64 m_topFpsWindowStartMs;
