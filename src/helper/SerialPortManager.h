@@ -26,6 +26,7 @@ public:
     Q_INVOKABLE bool connectPort(const QString &portName, int baudRate);
     Q_INVOKABLE void disconnectPort();
     Q_INVOKABLE bool sendData(const QString &text);
+    Q_INVOKABLE void appendConsoleMessage(const QString &message);
 
 public slots:
     bool sendWithConsole(const QString &text);
@@ -42,6 +43,8 @@ signals:
 
 private:
     void updatePortsIfChanged(const QStringList &newPorts);
+    bool isVirtualPort(const QString &portName) const;
+    void emitVirtualEcho(const QString &text);
 
 private:
     QStringList m_portNames;
@@ -51,4 +54,6 @@ private:
     QThread *m_workerThread;
     QObject *m_worker;
     QTimer *m_scanTimer;
+    QString m_virtualPortName;
+    bool m_virtualConnected;
 };

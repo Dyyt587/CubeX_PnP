@@ -3,6 +3,7 @@
 #include <QTextStream>
 #include <QUrl>
 #include <QDebug>
+#include <QFileInfo>
 
 CsvFileReader::CsvFileReader(QObject *parent)
     : QObject(parent)
@@ -78,6 +79,14 @@ QVariantList CsvFileReader::readCsvFile(const QString &filePath)
         localPath = QUrl(filePath).toLocalFile();
     }
 
+    QFileInfo fileInfo(localPath);
+    if (fileInfo.suffix().toLower() != "csv") {
+        lastError = QString("Unsupported file type: %1").arg(fileInfo.suffix());
+        emit parseError(lastError);
+        qWarning() << "CsvFileReader:" << lastError;
+        return QVariantList();
+    }
+
     QFile file(localPath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         lastError = QString("Failed to open file: %1").arg(localPath);
@@ -100,15 +109,37 @@ QVariantList CsvFileReader::readCsvFile(const QString &filePath)
 
     QStringList headers = parseCSVLine(headerLine);
 
-    // Read rest of file
-    QString content;
+    // Stream parsing to avoid loading huge files fully into memory.
+    QVariantList result;
+    int rowIndex = 1;
+    const int maxRows = 200000;
     while (!in.atEnd()) {
-        content += in.readLine() + "\n";
+        const QString line = in.readLine().trimmed();
+        if (line.isEmpty()) {
+            continue;
+        }
+
+        QStringList fields = parseCSVLine(line);
+        while (fields.length() < headers.length()) {
+            fields.append("");
+        }
+
+        QVariantMap row;
+        for (int j = 0; j < headers.length() && j < fields.length(); ++j) {
+            row[headers[j]] = fields[j].trimmed();
+        }
+        row["rowIndex"] = rowIndex++;
+        result.append(row);
+
+        if (result.size() >= maxRows) {
+            lastError = QString("CSV rows exceed limit (%1)").arg(maxRows);
+            emit parseError(lastError);
+            qWarning() << "CsvFileReader:" << lastError;
+            break;
+        }
     }
 
     file.close();
-
-    QVariantList result = parseCSV(content, headers);
 
     if (result.isEmpty()) {
         lastError = "No data rows found";

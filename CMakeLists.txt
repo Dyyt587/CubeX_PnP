@@ -35,6 +35,7 @@ qt_add_qml_module(appCubeX_PnP
         RESOURCES resource.qrc
         QML_FILES
         QML/AppMainWindow.qml
+        QML/component/CubexFluTableView.qml
         QML/component/DraggableFocusOverlay.qml
         QML/component/SerialConnectionPanel.qml
         QML/page/CameraCard.qml

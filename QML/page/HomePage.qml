@@ -18,34 +18,120 @@ FluContentPage{
     property var topPreviewCameraDevice: null
     property var bottomPreviewCameraDevice: null
     property int homePreviewRole: 0
-    property bool runPaused: true
-    property int runCurrentRow: -1
-    property real mountedProgress: 0
+    property bool runPaused: mainWindow.homeRunPaused
+    property int runCurrentRow: mainWindow.homeRunCurrentRow
+    property real mountedProgress: mainWindow.homeMountedProgress
     signal checkBoxChanged
     signal runCurrentItemChanged(int rowIndex, var item)
 
-    function updateMountedProgress() {
-        var selectedCount = 0
-        var mountedCount = 0
-        for (var i = 0; i < table_view.rows; i++) {
-            var rowData = table_view.getRow(i)
-            var selected = rowData.checkbox && rowData.checkbox.options && rowData.checkbox.options.checked
-            if (selected) {
-                selectedCount += 1
-                var mounted = rowData.mounted && rowData.mounted.options && rowData.mounted.options.checked
-                if (mounted) {
-                    mountedCount += 1
-                }
+    function buildUiRow(rawRow, fallbackRowIndex) {
+        var row = mainWindow.normalizeHomeRow(rawRow, fallbackRowIndex)
+        return {
+            rowIndex: row.rowIndex,
+            checkbox: table_view.customItem(com_checbox, {checked: row.selected}),
+            name: row.name,
+            avatar: row.avatar,
+            age: row.age,
+            address: row.address,
+            nickname: row.nickname,
+            longstring: row.longstring,
+            mounted: table_view.customItem(com_mounted_checkbox, {checked: row.mounted}),
+            layer: row.layer,
+            quantity: row.quantity,
+            component_name: row.component_name,
+            action: table_view.customItem(com_action),
+            _minimumHeight: row._minimumHeight,
+            _key: row._key
+        }
+    }
+
+    function extractRawRow(rowData, fallbackRowIndex) {
+        return mainWindow.normalizeHomeRow({
+            rowIndex: rowData.rowIndex || fallbackRowIndex,
+            selected: rowData.checkbox && rowData.checkbox.options && rowData.checkbox.options.checked,
+            name: rowData.name,
+            avatar: rowData.avatar,
+            age: rowData.age,
+            address: rowData.address,
+            nickname: rowData.nickname,
+            longstring: rowData.longstring,
+            mounted: rowData.mounted && rowData.mounted.options && rowData.mounted.options.checked,
+            layer: rowData.layer,
+            quantity: rowData.quantity,
+            component_name: rowData.component_name,
+            _minimumHeight: rowData._minimumHeight,
+            _key: rowData._key
+        }, fallbackRowIndex)
+    }
+
+    function refreshHomeTableFromState() {
+        var rows = []
+        for (var i = 0; i < mainWindow.homeTableData.length; i++) {
+            rows.push(buildUiRow(mainWindow.homeTableData[i], i + 1))
+        }
+        table_view.dataSource = rows
+        if (mainWindow.homeTablePageCurrent > 0) {
+            gagination.pageCurrent = mainWindow.homeTablePageCurrent
+        }
+    }
+
+    function persistHomeTableData() {
+        var data = []
+        if (table_view && table_view.sourceModel) {
+            for (var i = 0; i < table_view.sourceModel.rowCount; i++) {
+                data.push(extractRawRow(table_view.sourceModel.getRow(i), i + 1))
             }
         }
-        mountedProgress = selectedCount > 0 ? (mountedCount / selectedCount) : 0
+        mainWindow.setHomeTableData(data)
+        mainWindow.homeTablePageCurrent = gagination.pageCurrent
+    }
+
+    function applyHomeTableData(data) {
+        mainWindow.setHomeTableData(data)
+        refreshHomeTableFromState()
+        mainWindow.homeTablePageCurrent = gagination.pageCurrent
+    }
+
+    function updateMountedProgress() {
+        mountedProgress = mainWindow.homeMountedProgress
     }
 
     function getCurrentRunItem() {
-        if (runCurrentRow < 0 || runCurrentRow >= table_view.rows) {
+        if (runCurrentRow < 0 || runCurrentRow >= mainWindow.homeTableData.length) {
             return null
         }
-        return table_view.getRow(runCurrentRow)
+        return buildUiRow(mainWindow.homeTableData[runCurrentRow], runCurrentRow + 1)
+    }
+
+    function isRowSelected(rowIndex) {
+        return mainWindow.isHomeRowSelected(rowIndex)
+    }
+
+    function findNextSelectedRow(startIndex) {
+        return mainWindow.findNextSelectedHomeRow(startIndex)
+    }
+
+    function buildRowCommand(rowData) {
+        return mainWindow.buildHomeRowCommand(extractRawRow(rowData, rowData ? rowData.rowIndex : 0))
+    }
+
+    function sendSelectedRowsToController() {
+        if (!serialPortManager || !serialPortManager.connected) {
+            showWarning(qsTr("串口未连接，无法发送任务列表"))
+            return false
+        }
+        if (!mainWindow.sendHomeSelectedRowsToController()) {
+            showWarning(qsTr("没有可发送的勾选项"))
+            return false
+        }
+        return true
+    }
+
+    function appendRunConsoleMessage(rowIndex, item) {
+        if (!serialPortManager) {
+            return
+        }
+        serialPortManager.appendConsoleMessage("[RUN] row=" + rowIndex + " item=" + JSON.stringify(item))
     }
 
     function syncCurrentRunHighlight() {
@@ -58,62 +144,51 @@ FluContentPage{
     }
 
     function moveToNextRunItem() {
-        if (table_view.rows <= 0 || runCurrentRow < 0) {
-            return
-        }
-
-        var previousRow = runCurrentRow
-        var previousItem = table_view.getRow(previousRow)
-        previousItem.mounted = table_view.customItem(com_mounted_checkbox, {checked: true})
-        table_view.setRow(previousRow, previousItem)
+        var previousRow = mainWindow.homeRunCurrentRow
+        mainWindow.advanceHomeRun()
+        refreshHomeTableFromState()
+        runPaused = mainWindow.homeRunPaused
+        runCurrentRow = mainWindow.homeRunCurrentRow
         updateMountedProgress()
-
-        runCurrentRow = previousRow + 1
-        if (runCurrentRow >= table_view.rows) {
-            smtWork.stop()
-            runPaused = true
-            runCurrentRow = -1
-            syncCurrentRunHighlight()
+        if (mainWindow.homeRunCurrentRow < 0) {
             showSuccess(qsTr("流程执行完成"))
             return
         }
-
-        var currentItem = table_view.getRow(runCurrentRow)
+        var currentItem = getCurrentRunItem()
         syncCurrentRunHighlight()
-        console.log("[RUN] row=", runCurrentRow, " item=", JSON.stringify(currentItem))
+        appendRunConsoleMessage(runCurrentRow, currentItem)
         runCurrentItemChanged(runCurrentRow, currentItem)
     }
 
     function startRunLoop() {
-        if (table_view.rows <= 0) {
+        if (mainWindow.homeTableData.length <= 0) {
             showWarning(qsTr("表格为空，无法开始"))
             return
         }
 
-        if (runCurrentRow >= 0 && runCurrentRow < table_view.rows) {
-            runPaused = false
-            smtWork.start()
+        if (!mainWindow.startHomeRun()) {
+            showWarning(qsTr("没有勾选项，无法开始"))
             return
         }
 
-        runPaused = false
-        runCurrentRow = 0
-        var currentItem = table_view.getRow(runCurrentRow)
+        runPaused = mainWindow.homeRunPaused
+        runCurrentRow = mainWindow.homeRunCurrentRow
+        refreshHomeTableFromState()
+        var currentItem = getCurrentRunItem()
         syncCurrentRunHighlight()
-        console.log("[RUN] row=", runCurrentRow, " item=", JSON.stringify(currentItem))
+        appendRunConsoleMessage(runCurrentRow, currentItem)
         runCurrentItemChanged(runCurrentRow, currentItem)
-        smtWork.start()
     }
 
     function pauseRunLoop() {
-        runPaused = true
-        smtWork.pause()
+        mainWindow.pauseHomeRun()
+        runPaused = mainWindow.homeRunPaused
     }
 
     function stopRunLoop() {
-        runPaused = true
-        smtWork.stop()
-        runCurrentRow = -1
+        mainWindow.stopHomeRun()
+        runPaused = mainWindow.homeRunPaused
+        runCurrentRow = mainWindow.homeRunCurrentRow
         syncCurrentRunHighlight()
     }
 
@@ -128,7 +203,7 @@ FluContentPage{
     FileDialog {
         id: fileImportDialog
         title: qsTr("选择要导入的文件")
-        nameFilters: [qsTr("CSV 文件 (*.csv)"), qsTr("Excel 文件 (*.xlsx)"), qsTr("所有文件 (*)")]
+        nameFilters: [qsTr("CSV 文件 (*.csv)"), qsTr("所有文件 (*)")]
         onAccepted: {
             importFile(selectedFile)
         }
@@ -138,54 +213,101 @@ FluContentPage{
     onLayerKeywordChanged: applyFilters()
 
     Component.onCompleted: {
-        loadData(1,1000)
+        if (mainWindow.homeTableData && mainWindow.homeTableData.length > 0) {
+            refreshHomeTableFromState()
+        } else {
+            loadData(1,1000)
+        }
+        runPaused = mainWindow.homeRunPaused
+        runCurrentRow = mainWindow.homeRunCurrentRow
         scanStartupTimer.start()
         scheduleResolvePreviewDevices()
         updateMountedProgress()
     }
 
+    Connections {
+        target: mainWindow
+        function onHomeTableDataChanged() {
+            refreshHomeTableFromState()
+        }
+        function onHomeRunCurrentRowChanged() {
+            runCurrentRow = mainWindow.homeRunCurrentRow
+            syncCurrentRunHighlight()
+        }
+        function onHomeRunPausedChanged() {
+            runPaused = mainWindow.homeRunPaused
+        }
+        function onHomeMountedProgressChanged() {
+            mountedProgress = mainWindow.homeMountedProgress
+        }
+    }
+
     function importFile(filePath) {
-        var fileName = filePath.toString().split("/").pop()
-        
+        var fileUrl = filePath ? filePath.toString() : ""
+        var fileName = fileUrl.split("/").pop()
+        // 导入新数据前先中止运行态，避免旧索引/高亮引用已被替换的模型
+        stopRunLoop()
+
+        if (fileUrl === "" || !fileUrl.toLowerCase().endsWith(".csv")) {
+            showError(qsTr("仅支持导入 CSV 文件"))
+            return
+        }
+
         // 使用C++后端读取CSV文件
-        var csvData = csvFileReader.readCsvFile(filePath)
+        var csvData = csvFileReader.readCsvFile(fileUrl)
         
-        if (csvData.length === 0) {
-            showError(qsTr("文件读取失败或文件为空"))
+        if (!csvData || csvData.length === undefined || csvData.length === 0) {
+            var err = csvFileReader.getLastError()
+            if (err === "") {
+                err = qsTr("文件读取失败或文件为空")
+            }
+            showError(err)
             return
         }
         
         // 将CSV数据转换为表格格式
+        // 单行会创建多个 customItem，对超大文件需限制行数以避免瞬时内存暴涨。
+        var maxImportRows = 10000
+        var importCount = Math.min(csvData.length, maxImportRows)
         var dataSource = []
-        for (var i = 0; i < csvData.length; i++) {
+        for (var i = 0; i < importCount; i++) {
             var row = csvData[i]
+            if (!row) {
+                continue
+            }
             var item = {
                 rowIndex: row.rowIndex || (i + 1),
-                checkbox: table_view.customItem(com_checbox, {checked: row.SMD === "Yes"}),
+                selected: row.SMD === "Yes",
                 name: row.Designator || row.designator || "",
                 avatar: row.Device || row.device || row.Footprint || row.footprint || "",
                 age: row.Pins || "0",
                 address: row["Mid X"] || row.midX || row.midx || "",  // x坐标
                 nickname: row["Mid Y"] || row.midY || row.midy || "", // y坐标
                 longstring: row.Rotation || row.rotation || "0",       // 角度
-                mounted: table_view.customItem(com_mounted_checkbox, {checked: false}),  // 已贴装（初始未勾选）
+                mounted: false,
                 layer: row.Layer || row.layer || "",                  // 板层
                 quantity: row.Pins || "0",                            // 数量
                 component_name: row.Device || row.device || row.Footprint || row.footprint || "",  // 器件名字
-                action: table_view.customItem(com_action),
                 _minimumHeight: 50,
                 _key: FluTools.uuid()
             }
             dataSource.push(item)
         }
-        
+
         // 加载到表格
-        table_view.dataSource = dataSource
+        applyHomeTableData(dataSource)
+
         gagination.pageCurrent = 1
+        mainWindow.homeTablePageCurrent = 1
+
         root.allCheckState = Qt.Unchecked
-        updateMountedProgress()
+
+       // updateMountedProgress()
+        if (csvData.length > maxImportRows) {
+            showWarning(qsTr("文件行数过大，仅加载前 ") + maxImportRows + qsTr(" 行"))
+        }
         
-        showSuccess(qsTr("文件已导入: ") + fileName + qsTr(" (") + csvData.length + qsTr(" 行)"))
+        showSuccess(qsTr("文件已导入: ") + fileName + qsTr(" (") + importCount + qsTr(" 行)"))
     }
 
     function resolveCameraDeviceFor(cameraName, cameraIndex) {
@@ -243,13 +365,6 @@ FluContentPage{
         target: mainWindow.sharedMediaDevices
         function onVideoInputsChanged() {
             scheduleResolvePreviewDevices()
-        }
-    }
-
-    Connections {
-        target: smtWork
-        function onTick() {
-            root.moveToNextRunItem()
         }
     }
 
@@ -481,6 +596,7 @@ FluContentPage{
                     var obj = table_view.getRow(row)
                     obj.checkbox = table_view.customItem(com_checbox,{checked})
                     table_view.setRow(row,obj)
+                    root.persistHomeTableData()
                     root.checkBoxChanged()
                 }
             }
@@ -498,6 +614,7 @@ FluContentPage{
                     var obj = table_view.getRow(row)
                     obj.mounted = table_view.customItem(com_mounted_checkbox, {checked})
                     table_view.setRow(row,obj)
+                    root.persistHomeTableData()
                 }
             }
         }
@@ -577,6 +694,7 @@ FluContentPage{
                     onClicked: {
                         table_view.closeEditor()
                         table_view.removeRow(row)
+                        root.persistHomeTableData()
                     }
                 }
                 FluFilledButton{
@@ -585,6 +703,7 @@ FluContentPage{
                         var obj = table_view.getRow(row)
                         obj.name = "12345"
                         table_view.setRow(row,obj)
+                        root.persistHomeTableData()
                         showSuccess(JSON.stringify(obj))
                     }
                 }
@@ -613,6 +732,7 @@ FluContentPage{
                             rowData.checkbox = table_view.customItem(com_checbox, {"checked": checkState === Qt.Checked})
                             table_view.setRow(i, rowData)
                         }
+                        root.persistHomeTableData()
                     }
                 }
             }
@@ -846,7 +966,8 @@ FluContentPage{
                     FluButton{
                         text: qsTr("Clear All")
                         onClicked: {
-                            table_view.dataSource = []
+                            root.stopRunLoop()
+                            root.applyHomeTableData([])
                             root.updateMountedProgress()
                         }
                     }
@@ -871,7 +992,7 @@ FluContentPage{
                                     data.push(sourceItem);
                                 }
                             }
-                            table_view.dataSource = data
+                            root.applyHomeTableData(data)
                             root.updateMountedProgress()
                         }
                     }
@@ -879,6 +1000,7 @@ FluContentPage{
                         text: qsTr("Add a row of Data")
                         onClicked: {
                             table_view.appendRow(genTestObject())
+                            root.persistHomeTableData()
                             root.updateMountedProgress()
                         }
                     }
@@ -889,6 +1011,7 @@ FluContentPage{
                             if(index !== -1){
                                 var testObj = genTestObject()
                                 table_view.insertRow(index,testObj)
+                                root.persistHomeTableData()
                                 root.updateMountedProgress()
                             }else{
                                 showWarning(qsTr("Focus not acquired: Please click any item in the form as the target for insertion!"))
@@ -971,17 +1094,24 @@ FluContentPage{
                             height: 34
                             onClicked: {
                                 if (root.runCurrentRow < 0) {
-                                    if (table_view.rows <= 0) {
+                                    if (mainWindow.homeTableData.length <= 0) {
                                         showWarning(qsTr("表格为空，无法单步执行"))
                                         return
                                     }
-                                    root.runCurrentRow = 0
-                                    var firstItem = table_view.getRow(root.runCurrentRow)
+                                    if (!mainWindow.stepHomeRun()) {
+                                        showWarning(qsTr("没有勾选项，无法单步执行"))
+                                        return
+                                    }
+                                    root.runCurrentRow = mainWindow.homeRunCurrentRow
+                                    var firstItem = root.getCurrentRunItem()
                                     root.syncCurrentRunHighlight()
-                                    console.log("[RUN] row=", root.runCurrentRow, " item=", JSON.stringify(firstItem))
+                                    root.appendRunConsoleMessage(root.runCurrentRow, firstItem)
                                     root.runCurrentItemChanged(root.runCurrentRow, firstItem)
                                 } else {
-                                    smtWork.stepOnce()
+                                    mainWindow.stepHomeRun()
+                                    root.runCurrentRow = mainWindow.homeRunCurrentRow
+                                    root.refreshHomeTableFromState()
+                                    root.syncCurrentRunHighlight()
                                 }
                                 showSuccess(qsTr("单步执行"))
                             }
@@ -990,9 +1120,9 @@ FluContentPage{
                 }
             }
 
-            FluTableView{
+            CubexFluTableView{
                 id:table_view
-                selectedColor: Qt.rgba(0.45, 0.75, 1.0, 0.30)
+                highlightRow: root.runCurrentRow
                 anchors{
                     left: parent.left
                     right: parent.right
@@ -1080,31 +1210,6 @@ FluContentPage{
                         frozen:true
                     }
                 ]
-            }
-
-            // 当前运行行高亮叠加层（不修改 FluTableView 内部）
-            Rectangle {
-                id: runRowHighlight
-                z: 20
-                visible: root.runCurrentRow >= 0 && root.runCurrentRow < table_view.rows
-                // 用响应式属性算偏移：
-                //   table_view.width  - table_view.view.width  = 行号列宽（header_vertical.implicitWidth）
-                //   table_view.height - table_view.view.height = 列标题高（header_horizontal.height）
-                property real rowTop: {
-                    var y = 0
-                    var r = root.runCurrentRow
-                    for (var i = 0; i < r; i++) {
-                        y += table_view.rowHeightProvider(i)
-                    }
-                    return y
-                }
-                property real rowH: (root.runCurrentRow >= 0 && root.runCurrentRow < table_view.rows)
-                                    ? table_view.rowHeightProvider(root.runCurrentRow) : 42
-                x: table_view.x + (table_view.width - table_view.view.width)
-                y: table_view.y + (table_view.height - table_view.view.height) + rowTop - table_view.view.contentY
-                width: table_view.view.width
-                height: rowH
-                color: Qt.rgba(0.45, 0.75, 1.0, 0.30)
             }
 
             FluPagination{
@@ -1725,24 +1830,24 @@ FluContentPage{
             return avatars[randomIndex];
         }
         return {
-            checkbox: table_view.customItem(com_checbox,{checked:false}),
             rowIndex: '',
+            selected: false,
             avatar: "TSSOP-20",
             name: getRandomName(),
             age:getRandomAge(),
             address: getRandomAddresses(),
             nickname: getRandomNickname(),
             longstring:"0",
-            mounted: table_view.customItem(com_mounted_checkbox, {checked: false}),
+            mounted: false,
             layer: "T",
             quantity: getRandomAge(),
             component_name: "TSSOP-20",
-            action: table_view.customItem(com_action),
             _minimumHeight:50,
             _key:FluTools.uuid()
         }
     }
     function loadData(page,count){
+        stopRunLoop()
         const dataSource = []
         const startIndex = (page - 1) * count + 1
         for(var i=0;i<count;i++){
@@ -1750,7 +1855,7 @@ FluContentPage{
             obj.rowIndex = startIndex + i
             dataSource.push(obj)
         }
-        table_view.dataSource = dataSource
+        applyHomeTableData(dataSource)
     }
     function updateAllCheck() {
         let checkedCount = 0

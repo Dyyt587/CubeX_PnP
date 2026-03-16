@@ -45,7 +45,9 @@ SerialPortManager::SerialPortManager(QObject *parent)
     m_serialPort(new QSerialPort(this)),
       m_workerThread(new QThread(this)),
       m_worker(new SerialScanWorker),
-      m_scanTimer(new QTimer(this))
+    m_scanTimer(new QTimer(this)),
+    m_virtualPortName(QStringLiteral("[虚拟调试设备] DEBUG-ECHO")),
+    m_virtualConnected(false)
 {
     auto *worker = static_cast<SerialScanWorker *>(m_worker);
     worker->moveToThread(m_workerThread);
@@ -104,7 +106,7 @@ QStringList SerialPortManager::portNames() const
 
 bool SerialPortManager::isConnected() const
 {
-    return m_serialPort->isOpen();
+    return m_virtualConnected || m_serialPort->isOpen();
 }
 
 void SerialPortManager::refreshPorts()
@@ -117,6 +119,22 @@ bool SerialPortManager::connectPort(const QString &portName, int baudRate)
     if (portName.isEmpty()) {
         emit errorOccurred(tr("未指定串口"));
         return false;
+    }
+
+    if (isVirtualPort(portName)) {
+        if (m_serialPort->isOpen()) {
+            m_serialPort->close();
+        }
+        if (!m_virtualConnected) {
+            m_virtualConnected = true;
+            emit connectedChanged();
+        }
+        return true;
+    }
+
+    const bool wasVirtualConnected = m_virtualConnected;
+    if (m_virtualConnected) {
+        m_virtualConnected = false;
     }
 
     if (m_serialPort->isOpen()) {
@@ -132,6 +150,9 @@ bool SerialPortManager::connectPort(const QString &portName, int baudRate)
     m_serialPort->setFlowControl(QSerialPort::NoFlowControl);
 
     if (!m_serialPort->open(QIODevice::ReadWrite)) {
+        if (wasVirtualConnected) {
+            emit connectedChanged();
+        }
         emit errorOccurred(m_serialPort->errorString());
         return false;
     }
@@ -142,6 +163,12 @@ bool SerialPortManager::connectPort(const QString &portName, int baudRate)
 
 void SerialPortManager::disconnectPort()
 {
+    if (m_virtualConnected) {
+        m_virtualConnected = false;
+        emit connectedChanged();
+        return;
+    }
+
     if (!m_serialPort->isOpen()) {
         return;
     }
@@ -151,6 +178,11 @@ void SerialPortManager::disconnectPort()
 
 bool SerialPortManager::sendData(const QString &text)
 {
+    if (m_virtualConnected) {
+        emitVirtualEcho(text);
+        return true;
+    }
+
     if (!m_serialPort->isOpen()) {
         emit errorOccurred(tr("串口未连接"));
         return false;
@@ -163,6 +195,11 @@ bool SerialPortManager::sendData(const QString &text)
         return false;
     }
     return true;
+}
+
+void SerialPortManager::appendConsoleMessage(const QString &message)
+{
+    emit consoleMessage(message);
 }
 
 bool SerialPortManager::sendWithConsole(const QString &text)
@@ -190,11 +227,30 @@ void SerialPortManager::clearBufferedData()
 
 void SerialPortManager::updatePortsIfChanged(const QStringList &newPorts)
 {
-    if (m_portNames == newPorts) {
+    QStringList ports = newPorts;
+    ports.removeAll(m_virtualPortName);
+    ports.prepend(m_virtualPortName);
+
+    if (m_portNames == ports) {
         return;
     }
-    m_portNames = newPorts;
+    m_portNames = ports;
     emit portNamesChanged();
+}
+
+bool SerialPortManager::isVirtualPort(const QString &portName) const
+{
+    return portName == m_virtualPortName;
+}
+
+void SerialPortManager::emitVirtualEcho(const QString &text)
+{
+    {
+        QMutexLocker locker(m_bufferMutex);
+        m_receivedBuffer.append(text);
+    }
+    emit dataReceived(text);
+    emit consoleMessage(tr("[接收] ") + text);
 }
 
 #include "SerialPortManager.moc"

@@ -14,20 +14,29 @@ FluContentPage {
 
     // 控制器属性
     property string controllerStatus: qsTr("未连接")
-    property string selectedComPort: ""
-    property int selectedBaudRate: 115200
-    property var availableComPorts: []
+    property string selectedComPort: mainWindow.serialSelectedComPort
+    property int selectedBaudRate: mainWindow.serialSelectedBaudRate
+    property var availableComPorts: mainWindow.serialAvailableComPorts
     property var availableBaudRates: [9600, 19200, 38400, 57600, 115200]
-    property string controllerConsoleText: ""
-    property bool autoReconnectEnabled: false
-    property bool manualDisconnectRequested: false
-    property bool reconnectAttemptInProgress: false
-    property string reconnectTargetComPort: ""
-    property int reconnectTargetBaudRate: 115200
+    property string controllerConsoleText: mainWindow.serialControllerConsoleText
+    property bool autoReconnectEnabled: mainWindow.serialAutoReconnectEnabled
+    property bool manualDisconnectRequested: mainWindow.serialManualDisconnectRequested
+    property bool reconnectAttemptInProgress: mainWindow.serialReconnectAttemptInProgress
+    property string reconnectTargetComPort: mainWindow.serialReconnectTargetComPort
+    property int reconnectTargetBaudRate: mainWindow.serialReconnectTargetBaudRate
 
     Component.onCompleted: {
         loadDevices()
         syncComPorts(serialPortManager.portNames)
+        root.controllerStatus = serialPortManager.connected ? qsTr("已连接") : qsTr("未连接")
+        root.selectedComPort = mainWindow.serialSelectedComPort
+        root.selectedBaudRate = mainWindow.serialSelectedBaudRate
+        root.autoReconnectEnabled = mainWindow.serialAutoReconnectEnabled
+        root.manualDisconnectRequested = mainWindow.serialManualDisconnectRequested
+        root.reconnectAttemptInProgress = mainWindow.serialReconnectAttemptInProgress
+        root.reconnectTargetComPort = mainWindow.serialReconnectTargetComPort
+        root.reconnectTargetBaudRate = mainWindow.serialReconnectTargetBaudRate
+        root.controllerConsoleText = mainWindow.serialControllerConsoleText
         serialPortManager.refreshPorts()
         cameraDeviceManager.refreshCameras()
     }
@@ -52,7 +61,9 @@ FluContentPage {
             root.controllerStatus = serialPortManager.connected ? qsTr("已连接") : qsTr("未连接")
             if (nowConnected) {
                 root.manualDisconnectRequested = false
+                mainWindow.serialManualDisconnectRequested = false
                 root.reconnectAttemptInProgress = false
+                mainWindow.serialReconnectAttemptInProgress = false
                 autoReconnectTimer.stop()
                 appendControllerConsole(qsTr("[系统] 串口已连接"))
             } else {
@@ -81,8 +92,10 @@ FluContentPage {
 
     function syncComPorts(ports) {
         availableComPorts = ports ? ports.slice() : []
+        mainWindow.serialAvailableComPorts = availableComPorts
         if (availableComPorts.length === 0) {
             selectedComPort = ""
+            mainWindow.serialSelectedComPort = ""
             if (controllerStatus === qsTr("已连接")) {
                 controllerStatus = qsTr("未连接")
             }
@@ -90,6 +103,7 @@ FluContentPage {
         }
         if (availableComPorts.indexOf(selectedComPort) === -1) {
             selectedComPort = availableComPorts[0]
+            mainWindow.serialSelectedComPort = selectedComPort
         }
     }
 
@@ -102,11 +116,14 @@ FluContentPage {
         controllerConsoleText = controllerConsoleText.length > 0
                 ? controllerConsoleText + "\n" + line
                 : line
+        mainWindow.serialControllerConsoleText = controllerConsoleText
     }
 
     function updateReconnectTarget(portName, baudRate) {
         reconnectTargetComPort = portName
         reconnectTargetBaudRate = baudRate
+        mainWindow.serialReconnectTargetComPort = reconnectTargetComPort
+        mainWindow.serialReconnectTargetBaudRate = reconnectTargetBaudRate
     }
 
     function tryAutoReconnect() {
@@ -123,6 +140,8 @@ FluContentPage {
         if (serialPortManager.connectPort(root.reconnectTargetComPort, root.reconnectTargetBaudRate)) {
             root.selectedComPort = root.reconnectTargetComPort
             root.selectedBaudRate = root.reconnectTargetBaudRate
+            mainWindow.serialSelectedComPort = root.selectedComPort
+            mainWindow.serialSelectedBaudRate = root.selectedBaudRate
             root.appendControllerConsole(qsTr("[系统] 自动重连成功: ") + root.reconnectTargetComPort + " @ " + root.reconnectTargetBaudRate)
             root.showInfoBar(qsTr("串口已自动重连"))
         }
@@ -266,7 +285,9 @@ FluContentPage {
             autoReconnectEnabled: root.autoReconnectEnabled
             onAutoReconnectToggled: (enabled) => {
                 root.autoReconnectEnabled = enabled
+                mainWindow.serialAutoReconnectEnabled = enabled
                 root.manualDisconnectRequested = false
+                mainWindow.serialManualDisconnectRequested = false
                 if (enabled) {
                     root.updateReconnectTarget(root.selectedComPort, root.selectedBaudRate)
                     root.appendControllerConsole(qsTr("[系统] 自动重连已开启"))
@@ -276,11 +297,18 @@ FluContentPage {
                 } else {
                     autoReconnectTimer.stop()
                     root.reconnectAttemptInProgress = false
+                    mainWindow.serialReconnectAttemptInProgress = false
                     root.appendControllerConsole(qsTr("[系统] 自动重连已关闭"))
                 }
             }
-            onComPortSelected: (portName) => { root.selectedComPort = portName }
-            onBaudRateSelected: (baudRate) => { root.selectedBaudRate = baudRate }
+            onComPortSelected: (portName) => {
+                root.selectedComPort = portName
+                mainWindow.serialSelectedComPort = portName
+            }
+            onBaudRateSelected: (baudRate) => {
+                root.selectedBaudRate = baudRate
+                mainWindow.serialSelectedBaudRate = baudRate
+            }
             onToggleConnectionRequested: {
                 if (!root.selectedComPort) {
                     showInfo(qsTr("未检测到可用串口"))
@@ -288,13 +316,17 @@ FluContentPage {
                 }
                 if (root.controllerStatus === qsTr("已连接")) {
                     root.manualDisconnectRequested = true
+                    mainWindow.serialManualDisconnectRequested = true
                     autoReconnectTimer.stop()
                     serialPortManager.disconnectPort()
                     showInfo(qsTr("已断开控制器连接"))
                 } else {
                     root.manualDisconnectRequested = false
+                    mainWindow.serialManualDisconnectRequested = false
                     root.updateReconnectTarget(root.selectedComPort, root.selectedBaudRate)
                     if (serialPortManager.connectPort(root.selectedComPort, root.selectedBaudRate)) {
+                        mainWindow.serialSelectedComPort = root.selectedComPort
+                        mainWindow.serialSelectedBaudRate = root.selectedBaudRate
                         appendControllerConsole(qsTr("[系统] 打开串口 ") + root.selectedComPort + " @ " + root.selectedBaudRate)
                         showInfo(qsTr("已连接控制器") + " (" + root.selectedComPort + " @ " + root.selectedBaudRate + " baud)")
                     }

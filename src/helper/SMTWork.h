@@ -1,7 +1,9 @@
 #pragma once
 
 #include <QObject>
-#include <QTimer>
+
+class QThread;
+class QObject;
 
 class SMTWork : public QObject
 {
@@ -11,6 +13,7 @@ class SMTWork : public QObject
 
 public:
     explicit SMTWork(QObject *parent = nullptr);
+    ~SMTWork() override;
 
     bool running() const { return m_running; }
     int intervalMs() const { return m_intervalMs; }
@@ -28,7 +31,8 @@ signals:
     void tick();
 
 private:
-    QTimer m_timer;
+    QObject *m_worker = nullptr;
+    QThread *m_workerThread = nullptr;
     bool m_running = false;
     int m_intervalMs = 2000;
 };

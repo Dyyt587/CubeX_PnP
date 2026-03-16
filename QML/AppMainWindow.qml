@@ -22,9 +22,227 @@ FluWindow {
 
     property point revealCenter: Qt.point(width / 2, height / 2)
     property bool revealingTheme: false
+    property var homeTableData: []
+    property int homeTablePageCurrent: 1
+    property bool homeRunPaused: true
+    property int homeRunCurrentRow: -1
+    property real homeMountedProgress: 0
+    property string serialSelectedComPort: ""
+    property int serialSelectedBaudRate: 115200
+    property var serialAvailableComPorts: []
+    property string serialControllerConsoleText: ""
+    property bool serialAutoReconnectEnabled: false
+    property bool serialManualDisconnectRequested: false
+    property bool serialReconnectAttemptInProgress: false
+    property string serialReconnectTargetComPort: ""
+    property int serialReconnectTargetBaudRate: 115200
 
     // 共享的摄像头资源
     readonly property MediaDevices sharedMediaDevices: MediaDevices { id: sharedMediaDevices }
+
+    function normalizeHomeRow(rawRow, fallbackRowIndex) {
+        var row = rawRow || {}
+        var selected = row.selected
+        if (selected === undefined) {
+            selected = row.checkbox && row.checkbox.options && row.checkbox.options.checked
+        }
+        var mounted = row.mounted
+        if (mounted !== true && mounted !== false) {
+            mounted = row.mounted && row.mounted.options && row.mounted.options.checked
+        }
+        return {
+            rowIndex: row.rowIndex || fallbackRowIndex,
+            selected: !!selected,
+            name: row.name || "",
+            avatar: row.avatar || "",
+            age: row.age || "0",
+            address: row.address || "",
+            nickname: row.nickname || "",
+            longstring: row.longstring || "0",
+            mounted: !!mounted,
+            layer: row.layer || "",
+            quantity: row.quantity || "0",
+            component_name: row.component_name || "",
+            _minimumHeight: row._minimumHeight || 50,
+            _key: row._key || FluTools.uuid()
+        }
+    }
+
+    function updateHomeMountedProgress() {
+        var selectedCount = 0
+        var mountedCount = 0
+        for (var i = 0; i < homeTableData.length; i++) {
+            var row = homeTableData[i]
+            if (!row || !row.selected) {
+                continue
+            }
+            selectedCount += 1
+            if (row.mounted) {
+                mountedCount += 1
+            }
+        }
+        homeMountedProgress = selectedCount > 0 ? (mountedCount / selectedCount) : 0
+    }
+
+    function setHomeTableData(rows) {
+        var normalized = []
+        var sourceRows = rows || []
+        for (var i = 0; i < sourceRows.length; i++) {
+            normalized.push(normalizeHomeRow(sourceRows[i], i + 1))
+        }
+        homeTableData = normalized
+        if (homeRunCurrentRow >= homeTableData.length) {
+            homeRunCurrentRow = -1
+            homeRunPaused = true
+            smtWork.stop()
+        }
+        updateHomeMountedProgress()
+    }
+
+    function replaceHomeRow(rowIndex, rowData) {
+        if (rowIndex < 0 || rowIndex >= homeTableData.length) {
+            return
+        }
+        var rows = homeTableData.slice()
+        rows[rowIndex] = normalizeHomeRow(rowData, rowIndex + 1)
+        homeTableData = rows
+        updateHomeMountedProgress()
+    }
+
+    function isHomeRowSelected(rowIndex) {
+        return rowIndex >= 0 && rowIndex < homeTableData.length && !!homeTableData[rowIndex].selected
+    }
+
+    function findNextSelectedHomeRow(startIndex) {
+        for (var i = Math.max(0, startIndex); i < homeTableData.length; i++) {
+            if (isHomeRowSelected(i)) {
+                return i
+            }
+        }
+        return -1
+    }
+
+    function buildHomeRowCommand(rowData) {
+        if (!rowData) {
+            return ""
+        }
+        return JSON.stringify({
+            rowIndex: rowData.rowIndex,
+            name: rowData.name,
+            component: rowData.component_name,
+            x: rowData.address,
+            y: rowData.nickname,
+            rotation: rowData.longstring,
+            layer: rowData.layer,
+            quantity: rowData.quantity
+        })
+    }
+
+    function sendHomeSelectedRowsToController() {
+        if (!serialPortManager || !serialPortManager.connected) {
+            return false
+        }
+        var sentCount = 0
+        for (var i = 0; i < homeTableData.length; i++) {
+            if (!isHomeRowSelected(i)) {
+                continue
+            }
+            var cmd = buildHomeRowCommand(homeTableData[i])
+            if (cmd !== "" && serialPortManager.sendWithConsole(cmd)) {
+                sentCount += 1
+            }
+        }
+        return sentCount > 0
+    }
+
+    function dispatchHomeWorkRow(rowIndex) {
+        if (rowIndex < 0 || rowIndex >= homeTableData.length) {
+            return false
+        }
+        var rowData = homeTableData[rowIndex]
+        var cmd = buildHomeRowCommand(rowData)
+        var label = "[WORK] row=" + rowIndex + " ref=" + rowData.name
+
+        if (!serialPortManager) {
+            return false
+        }
+
+        if (!serialPortManager.connected) {
+            console.log(label + " [跳过: 串口未连接]")
+            return false
+        }
+
+        var ok = serialPortManager.sendWithConsole(cmd)
+        console.log(label + (ok ? " [已发送]" : " [发送失败]"))
+        return ok
+    }
+
+    function startHomeRun() {
+        if (homeTableData.length <= 0) {
+            return false
+        }
+        if (homeRunCurrentRow >= 0 && homeRunCurrentRow < homeTableData.length && isHomeRowSelected(homeRunCurrentRow)) {
+            homeRunPaused = false
+            dispatchHomeWorkRow(homeRunCurrentRow)
+            smtWork.start()
+            return true
+        }
+        var firstSelectedRow = findNextSelectedHomeRow(0)
+        if (firstSelectedRow < 0) {
+            return false
+        }
+        homeRunPaused = false
+        homeRunCurrentRow = firstSelectedRow
+        dispatchHomeWorkRow(homeRunCurrentRow)
+        smtWork.start()
+        return true
+    }
+
+    function pauseHomeRun() {
+        homeRunPaused = true
+        smtWork.pause()
+    }
+
+    function stopHomeRun() {
+        homeRunPaused = true
+        homeRunCurrentRow = -1
+        smtWork.stop()
+    }
+
+    function stepHomeRun() {
+        if (homeRunCurrentRow < 0) {
+            var firstSelectedRow = findNextSelectedHomeRow(0)
+            if (firstSelectedRow < 0) {
+                return false
+            }
+            homeRunPaused = true
+            homeRunCurrentRow = firstSelectedRow
+            dispatchHomeWorkRow(homeRunCurrentRow)
+            return true
+        }
+        advanceHomeRun()
+        return true
+    }
+
+    function advanceHomeRun() {
+        if (homeTableData.length <= 0 || homeRunCurrentRow < 0 || homeRunCurrentRow >= homeTableData.length) {
+            return
+        }
+        var rows = homeTableData.slice()
+        var previous = normalizeHomeRow(rows[homeRunCurrentRow], homeRunCurrentRow + 1)
+        previous.mounted = true
+        rows[homeRunCurrentRow] = previous
+        homeTableData = rows
+        updateHomeMountedProgress()
+
+        var nextRow = findNextSelectedHomeRow(homeRunCurrentRow + 1)
+        if (nextRow < 0) {
+            stopHomeRun()
+            return
+        }
+        homeRunCurrentRow = nextRow
+        dispatchHomeWorkRow(homeRunCurrentRow)
+    }
     
     function getTopCameraDevice() {
         if (cameraDeviceManager.topCameraIndex >= 0 && cameraDeviceManager.topCameraIndex < sharedMediaDevices.videoInputs.length) {
@@ -59,6 +277,13 @@ FluWindow {
         }
         function onBottomCameraIndexChanged() {
             bottomSharedCamera.cameraDevice = getBottomCameraDevice()
+        }
+    }
+
+    Connections {
+        target: smtWork
+        function onTick() {
+            mainWindow.advanceHomeRun()
         }
     }
 
