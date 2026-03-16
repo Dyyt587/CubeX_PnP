@@ -28,6 +28,7 @@
 #include "src/helper/SerialPortManager.h"
 #include "src/helper/CsvFileReader.h"
 #include "src/helper/OpenCvPreviewManager.h"
+#include "src/helper/SMTWork.h"
 
 static QString resolveInteractiveBomUrl()
 {
@@ -74,11 +75,13 @@ int main(int argc, char *argv[])
     CameraDeviceManager cameraDeviceManager;
     CsvFileReader csvFileReader;
     OpenCvPreviewManager openCvPreviewManager;
+    SMTWork smtWork;
     
     engine.rootContext()->setContextProperty("serialPortManager", &serialPortManager);
     engine.rootContext()->setContextProperty("cameraDeviceManager", &cameraDeviceManager);
     engine.rootContext()->setContextProperty("csvFileReader", &csvFileReader);
     engine.rootContext()->setContextProperty("openCvPreviewManager", &openCvPreviewManager);
+    engine.rootContext()->setContextProperty("smtWork", &smtWork);
     engine.rootContext()->setContextProperty("interactiveBomUrl", resolveInteractiveBomUrl());
     engine.addImageProvider("opencvpreview", openCvPreviewManager.createImageProvider());
 

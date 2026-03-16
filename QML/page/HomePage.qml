@@ -18,7 +18,104 @@ FluContentPage{
     property var topPreviewCameraDevice: null
     property var bottomPreviewCameraDevice: null
     property int homePreviewRole: 0
+    property bool runPaused: true
+    property int runCurrentRow: -1
+    property real mountedProgress: 0
     signal checkBoxChanged
+    signal runCurrentItemChanged(int rowIndex, var item)
+
+    function updateMountedProgress() {
+        var selectedCount = 0
+        var mountedCount = 0
+        for (var i = 0; i < table_view.rows; i++) {
+            var rowData = table_view.getRow(i)
+            var selected = rowData.checkbox && rowData.checkbox.options && rowData.checkbox.options.checked
+            if (selected) {
+                selectedCount += 1
+                var mounted = rowData.mounted && rowData.mounted.options && rowData.mounted.options.checked
+                if (mounted) {
+                    mountedCount += 1
+                }
+            }
+        }
+        mountedProgress = selectedCount > 0 ? (mountedCount / selectedCount) : 0
+    }
+
+    function getCurrentRunItem() {
+        if (runCurrentRow < 0 || runCurrentRow >= table_view.rows) {
+            return null
+        }
+        return table_view.getRow(runCurrentRow)
+    }
+
+    function syncCurrentRunHighlight() {
+        // 叠加层 Rectangle 会自动跟随 runCurrentRow，这里只负责滚动视图到当前行
+        if (runCurrentRow >= 0 && runCurrentRow < table_view.rows) {
+            if (table_view.view && typeof table_view.view.positionViewAtRow === "function") {
+                table_view.view.positionViewAtRow(runCurrentRow, Qt.AlignVCenter)
+            }
+        }
+    }
+
+    function moveToNextRunItem() {
+        if (table_view.rows <= 0 || runCurrentRow < 0) {
+            return
+        }
+
+        var previousRow = runCurrentRow
+        var previousItem = table_view.getRow(previousRow)
+        previousItem.mounted = table_view.customItem(com_mounted_checkbox, {checked: true})
+        table_view.setRow(previousRow, previousItem)
+        updateMountedProgress()
+
+        runCurrentRow = previousRow + 1
+        if (runCurrentRow >= table_view.rows) {
+            smtWork.stop()
+            runPaused = true
+            runCurrentRow = -1
+            syncCurrentRunHighlight()
+            showSuccess(qsTr("流程执行完成"))
+            return
+        }
+
+        var currentItem = table_view.getRow(runCurrentRow)
+        syncCurrentRunHighlight()
+        console.log("[RUN] row=", runCurrentRow, " item=", JSON.stringify(currentItem))
+        runCurrentItemChanged(runCurrentRow, currentItem)
+    }
+
+    function startRunLoop() {
+        if (table_view.rows <= 0) {
+            showWarning(qsTr("表格为空，无法开始"))
+            return
+        }
+
+        if (runCurrentRow >= 0 && runCurrentRow < table_view.rows) {
+            runPaused = false
+            smtWork.start()
+            return
+        }
+
+        runPaused = false
+        runCurrentRow = 0
+        var currentItem = table_view.getRow(runCurrentRow)
+        syncCurrentRunHighlight()
+        console.log("[RUN] row=", runCurrentRow, " item=", JSON.stringify(currentItem))
+        runCurrentItemChanged(runCurrentRow, currentItem)
+        smtWork.start()
+    }
+
+    function pauseRunLoop() {
+        runPaused = true
+        smtWork.pause()
+    }
+
+    function stopRunLoop() {
+        runPaused = true
+        smtWork.stop()
+        runCurrentRow = -1
+        syncCurrentRunHighlight()
+    }
 
     function applyFilters() {
         table_view.filter(function(item){
@@ -44,6 +141,7 @@ FluContentPage{
         loadData(1,1000)
         scanStartupTimer.start()
         scheduleResolvePreviewDevices()
+        updateMountedProgress()
     }
 
     function importFile(filePath) {
@@ -85,6 +183,7 @@ FluContentPage{
         table_view.dataSource = dataSource
         gagination.pageCurrent = 1
         root.allCheckState = Qt.Unchecked
+        updateMountedProgress()
         
         showSuccess(qsTr("文件已导入: ") + fileName + qsTr(" (") + csvData.length + qsTr(" 行)"))
     }
@@ -148,6 +247,13 @@ FluContentPage{
     }
 
     Connections {
+        target: smtWork
+        function onTick() {
+            root.moveToNextRunItem()
+        }
+    }
+
+    Connections {
         target: cameraDeviceManager
         function onTopCameraNameChanged() {
             scheduleResolvePreviewDevices()
@@ -188,6 +294,7 @@ FluContentPage{
 
     onCheckBoxChanged: {
         updateAllCheck()
+        updateMountedProgress()
     }
 
     onVisibleChanged: {
@@ -740,6 +847,7 @@ FluContentPage{
                         text: qsTr("Clear All")
                         onClicked: {
                             table_view.dataSource = []
+                            root.updateMountedProgress()
                         }
                     }
 
@@ -764,12 +872,14 @@ FluContentPage{
                                 }
                             }
                             table_view.dataSource = data
+                            root.updateMountedProgress()
                         }
                     }
                     FluButton{
                         text: qsTr("Add a row of Data")
                         onClicked: {
                             table_view.appendRow(genTestObject())
+                            root.updateMountedProgress()
                         }
                     }
                     FluButton{
@@ -779,8 +889,101 @@ FluContentPage{
                             if(index !== -1){
                                 var testObj = genTestObject()
                                 table_view.insertRow(index,testObj)
+                                root.updateMountedProgress()
                             }else{
                                 showWarning(qsTr("Focus not acquired: Please click any item in the form as the target for insertion!"))
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    anchors {
+                        right: parent.right
+                        rightMargin: 10
+                        verticalCenter: parent.verticalCenter
+                    }
+                    radius: 8
+                    color: FluTheme.dark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.05)
+                    border.width: 1
+                    border.color: FluTheme.dark ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(0, 0, 0, 0.12)
+                    width: controlButtonsRow.width + 16
+                    height: controlButtonsRow.height + 12
+
+                    Row {
+                        id: controlButtonsRow
+                        spacing: 5
+                        anchors.centerIn: parent
+
+                        Item {
+                            width: 170
+                            height: 34
+
+                            ProgressBar {
+                                anchors.left: parent.left
+                                anchors.right: progressText.left
+                                anchors.rightMargin: 8
+                                anchors.verticalCenter: parent.verticalCenter
+                                from: 0
+                                to: 1
+                                value: root.mountedProgress
+                            }
+
+                            FluText {
+                                id: progressText
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: Math.round(root.mountedProgress * 100) + "%"
+                                font: FluTextStyle.Caption
+                                color: FluTheme.dark ? "#e0e0e0" : "#444444"
+                            }
+                        }
+
+                        FluIconButton {
+                            iconSource: root.runPaused ? FluentIcons.Play : FluentIcons.Pause
+                            iconSize: 16
+                            width: 34
+                            height: 34
+                            onClicked: {
+                                if (root.runPaused) {
+                                    root.startRunLoop()
+                                    showSuccess(qsTr("开始执行"))
+                                } else {
+                                    root.pauseRunLoop()
+                                    showSuccess(qsTr("已暂停"))
+                                }
+                            }
+                        }
+                        FluIconButton {
+                            iconSource: FluentIcons.Stop
+                            iconSize: 16
+                            width: 34
+                            height: 34
+                            onClicked: {
+                                root.stopRunLoop()
+                                showSuccess(qsTr("已中止"))
+                            }
+                        }
+                        FluIconButton {
+                            iconSource: FluentIcons.ChevronRight
+                            iconSize: 16
+                            width: 34
+                            height: 34
+                            onClicked: {
+                                if (root.runCurrentRow < 0) {
+                                    if (table_view.rows <= 0) {
+                                        showWarning(qsTr("表格为空，无法单步执行"))
+                                        return
+                                    }
+                                    root.runCurrentRow = 0
+                                    var firstItem = table_view.getRow(root.runCurrentRow)
+                                    root.syncCurrentRunHighlight()
+                                    console.log("[RUN] row=", root.runCurrentRow, " item=", JSON.stringify(firstItem))
+                                    root.runCurrentItemChanged(root.runCurrentRow, firstItem)
+                                } else {
+                                    smtWork.stepOnce()
+                                }
+                                showSuccess(qsTr("单步执行"))
                             }
                         }
                     }
@@ -789,6 +992,7 @@ FluContentPage{
 
             FluTableView{
                 id:table_view
+                selectedColor: Qt.rgba(0.45, 0.75, 1.0, 0.30)
                 anchors{
                     left: parent.left
                     right: parent.right
@@ -876,6 +1080,31 @@ FluContentPage{
                         frozen:true
                     }
                 ]
+            }
+
+            // 当前运行行高亮叠加层（不修改 FluTableView 内部）
+            Rectangle {
+                id: runRowHighlight
+                z: 20
+                visible: root.runCurrentRow >= 0 && root.runCurrentRow < table_view.rows
+                // 用响应式属性算偏移：
+                //   table_view.width  - table_view.view.width  = 行号列宽（header_vertical.implicitWidth）
+                //   table_view.height - table_view.view.height = 列标题高（header_horizontal.height）
+                property real rowTop: {
+                    var y = 0
+                    var r = root.runCurrentRow
+                    for (var i = 0; i < r; i++) {
+                        y += table_view.rowHeightProvider(i)
+                    }
+                    return y
+                }
+                property real rowH: (root.runCurrentRow >= 0 && root.runCurrentRow < table_view.rows)
+                                    ? table_view.rowHeightProvider(root.runCurrentRow) : 42
+                x: table_view.x + (table_view.width - table_view.view.width)
+                y: table_view.y + (table_view.height - table_view.view.height) + rowTop - table_view.view.contentY
+                width: table_view.view.width
+                height: rowH
+                color: Qt.rgba(0.45, 0.75, 1.0, 0.30)
             }
 
             FluPagination{
