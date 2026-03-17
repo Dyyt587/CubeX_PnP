@@ -247,10 +247,27 @@ FluContentPage{
         runPaused = mainWindow.homeRunPaused
     }
 
+    function clearMountedChecksInTable() {
+        if (!table_view || !table_view.sourceModel) {
+            return
+        }
+        var sourceModel = table_view.sourceModel
+        for (var i = 0; i < sourceModel.rowCount; i++) {
+            var item = sourceModel.getRow(i)
+            if (!item) {
+                continue
+            }
+            item.mounted = table_view.customItem(com_mounted_checkbox, {checked: false})
+            sourceModel.setRow(i, item)
+        }
+    }
+
     function stopRunLoop() {
-        mainWindow.stopHomeRun()
+        mainWindow.stopHomeRun(true)
+        clearMountedChecksInTable()
         runPaused = mainWindow.homeRunPaused
         runCurrentRow = mainWindow.homeRunCurrentRow
+        updateMountedProgress()
         syncCurrentRunHighlight()
     }
 

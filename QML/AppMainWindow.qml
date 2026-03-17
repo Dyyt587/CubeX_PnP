@@ -289,10 +289,31 @@ FluWindow {
         smtWork.pause()
     }
 
-    function stopHomeRun() {
+    function clearHomeMountedStates() {
+        if (!homeTableData || homeTableData.length <= 0) {
+            homeMountedProgress = 0
+            homeRunLastMountedRow = -1
+            return
+        }
+
+        var rows = homeTableData.slice()
+        for (var i = 0; i < rows.length; i++) {
+            var item = normalizeHomeRow(rows[i], i + 1)
+            item.mounted = false
+            rows[i] = item
+        }
+        homeTableData = rows
+        homeMountedProgress = 0
+        homeRunLastMountedRow = -1
+    }
+
+    function stopHomeRun(clearMounted) {
         homeRunPaused = true
         homeRunCurrentRow = -1
         homeRunOrderPos = -1
+        if (clearMounted === true) {
+            clearHomeMountedStates()
+        }
         smtWork.stop()
     }
 
