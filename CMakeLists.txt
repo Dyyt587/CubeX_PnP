@@ -37,6 +37,9 @@ qt_add_qml_module(appCubeX_PnP
         QML/AppMainWindow.qml
         QML/component/CubexFluTableView.qml
         QML/component/DraggableFocusOverlay.qml
+        QML/component/HomePageDialogs.qml
+        QML/component/HomePageTableDelegates.qml
+        QML/component/HomePageTableToolbar.qml
         QML/component/SerialConnectionPanel.qml
         QML/page/CameraCard.qml
         QML/page/DeviceConnectionPage.qml
