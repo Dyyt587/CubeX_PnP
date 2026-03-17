@@ -21,6 +21,7 @@ FluContentPage{
     property bool runPaused: mainWindow.homeRunPaused
     property int runCurrentRow: mainWindow.homeRunCurrentRow
     property real mountedProgress: mainWindow.homeMountedProgress
+    property int visibleRunCurrentRow: -1
     signal checkBoxChanged
     signal runCurrentItemChanged(int rowIndex, var item)
 
@@ -134,11 +135,72 @@ FluContentPage{
         serialPortManager.appendConsoleMessage("[RUN] row=" + rowIndex + " item=" + JSON.stringify(item))
     }
 
+    function buildRunOrderFromVisibleRows() {
+        var order = []
+        var keyToRawIndex = {}
+        for (var i = 0; i < mainWindow.homeTableData.length; i++) {
+            var raw = mainWindow.homeTableData[i]
+            if (!raw || !raw._key) {
+                continue
+            }
+            keyToRawIndex[raw._key] = i
+        }
+
+        for (var row = 0; row < table_view.rows; row++) {
+            var visible = table_view.getRow(row)
+            if (!visible || !visible._key) {
+                continue
+            }
+            var rawIndex = keyToRawIndex[visible._key]
+            if (rawIndex === undefined) {
+                continue
+            }
+            order.push(rawIndex)
+        }
+        return order
+    }
+
+    function resolveVisibleRunCurrentRow() {
+        if (runCurrentRow < 0 || runCurrentRow >= mainWindow.homeTableData.length) {
+            return -1
+        }
+        var current = mainWindow.homeTableData[runCurrentRow]
+        if (!current || !current._key) {
+            return -1
+        }
+        for (var i = 0; i < table_view.rows; i++) {
+            var row = table_view.getRow(i)
+            if (row && row._key === current._key) {
+                return i
+            }
+        }
+        return -1
+    }
+
     function syncCurrentRunHighlight() {
+        visibleRunCurrentRow = resolveVisibleRunCurrentRow()
         // 叠加层 Rectangle 会自动跟随 runCurrentRow，这里只负责滚动视图到当前行
-        if (runCurrentRow >= 0 && runCurrentRow < table_view.rows) {
+        if (visibleRunCurrentRow >= 0 && visibleRunCurrentRow < table_view.rows) {
             if (table_view.view && typeof table_view.view.positionViewAtRow === "function") {
-                table_view.view.positionViewAtRow(runCurrentRow, Qt.AlignVCenter)
+                table_view.view.positionViewAtRow(visibleRunCurrentRow, Qt.AlignVCenter)
+            }
+        }
+    }
+
+    function markTableRowMounted(rawRowIndex) {
+        if (rawRowIndex < 0 || rawRowIndex >= mainWindow.homeTableData.length) {
+            return
+        }
+        var targetKey = mainWindow.homeTableData[rawRowIndex]._key
+        if (!targetKey) {
+            return
+        }
+        for (var i = 0; i < table_view.rows; i++) {
+            var obj = table_view.getRow(i)
+            if (obj && obj._key === targetKey) {
+                obj.mounted = table_view.customItem(com_mounted_checkbox, {checked: true})
+                table_view.setRow(i, obj)
+                return
             }
         }
     }
@@ -146,7 +208,7 @@ FluContentPage{
     function moveToNextRunItem() {
         var previousRow = mainWindow.homeRunCurrentRow
         mainWindow.advanceHomeRun()
-        refreshHomeTableFromState()
+        markTableRowMounted(previousRow)
         runPaused = mainWindow.homeRunPaused
         runCurrentRow = mainWindow.homeRunCurrentRow
         updateMountedProgress()
@@ -166,14 +228,14 @@ FluContentPage{
             return
         }
 
-        if (!mainWindow.startHomeRun()) {
+        var runOrder = buildRunOrderFromVisibleRows()
+        if (!mainWindow.startHomeRun(runOrder)) {
             showWarning(qsTr("没有勾选项，无法开始"))
             return
         }
 
         runPaused = mainWindow.homeRunPaused
         runCurrentRow = mainWindow.homeRunCurrentRow
-        refreshHomeTableFromState()
         var currentItem = getCurrentRunItem()
         syncCurrentRunHighlight()
         appendRunConsoleMessage(runCurrentRow, currentItem)
@@ -193,11 +255,16 @@ FluContentPage{
     }
 
     function applyFilters() {
+        mainWindow.homeNameKeyword = nameKeyword
+        mainWindow.homeLayerKeyword = layerKeyword
         table_view.filter(function(item){
             var nameMatch = nameKeyword === "" || item.name.includes(nameKeyword)
             var layerMatch = layerKeyword === "" || item.layer.includes(layerKeyword)
             return nameMatch && layerMatch
         })
+        mainWindow.updateHomeMountedProgress()
+        updateMountedProgress()
+        syncCurrentRunHighlight()
     }
 
     FileDialog {
@@ -213,6 +280,8 @@ FluContentPage{
     onLayerKeywordChanged: applyFilters()
 
     Component.onCompleted: {
+        nameKeyword = mainWindow.homeNameKeyword
+        layerKeyword = mainWindow.homeLayerKeyword
         if (mainWindow.homeTableData && mainWindow.homeTableData.length > 0) {
             refreshHomeTableFromState()
         } else {
@@ -222,15 +291,18 @@ FluContentPage{
         runCurrentRow = mainWindow.homeRunCurrentRow
         scanStartupTimer.start()
         scheduleResolvePreviewDevices()
+        applyFilters()
         updateMountedProgress()
     }
 
     Connections {
         target: mainWindow
         function onHomeTableDataChanged() {
-            refreshHomeTableFromState()
+            // 运行期间（尤其带排序时）避免整表 dataSource 重建，防止模型重排导致崩溃。
+            // 页面可见时会在 onVisibleChanged 中主动同步一次。
         }
         function onHomeRunCurrentRowChanged() {
+            markTableRowMounted(mainWindow.homeRunLastMountedRow)
             runCurrentRow = mainWindow.homeRunCurrentRow
             syncCurrentRunHighlight()
         }
@@ -414,10 +486,26 @@ FluContentPage{
 
     onVisibleChanged: {
         if (visible) {
+            refreshHomeTableFromState()
+            Qt.callLater(syncCurrentRunHighlight)
             scanStartupTimer.restart()
         } else {
             cameraDeviceManager.stopScanning()
         }
+    }
+
+    function quantitySortValue(row) {
+        if (!row) {
+            return 0
+        }
+        var raw = row.quantity
+        if (raw === undefined || raw === null || raw === "") {
+            raw = row.age
+        }
+        var text = String(raw)
+        var numberText = text.replace(/[^0-9+\-.]/g, "")
+        var value = Number(numberText)
+        return isNaN(value) ? 0 : value
     }
 
     onSortTypeChanged: {
@@ -427,24 +515,25 @@ FluContentPage{
         }else if(sortType === 1){
             table_view.sort(
                         (l, r) =>{
-                            var lage = Number(l.age)
-                            var rage = Number(r.age)
-                            if(lage === rage){
+                            var lq = quantitySortValue(l)
+                            var rq = quantitySortValue(r)
+                            if(lq === rq){
                                 return l._key>r._key
                             }
-                            return lage>rage
+                            return lq>rq
                         });
         }else if(sortType === 2){
             table_view.sort(
                         (l, r) => {
-                            var lage = Number(l.age)
-                            var rage = Number(r.age)
-                            if(lage === rage){
+                            var lq = quantitySortValue(l)
+                            var rq = quantitySortValue(r)
+                            if(lq === rq){
                                 return l._key>r._key
                             }
-                            return lage<rage
+                            return lq<rq
                         });
         }
+        Qt.callLater(syncCurrentRunHighlight)
     }
 
     FluContentDialog{
@@ -838,7 +927,7 @@ FluContentPage{
         id:com_column_sort_age
         Item{
             FluText{
-                text: qsTr("板层")
+                text: qsTr("数量")
                 anchors.centerIn: parent
             }
             ColumnLayout{
@@ -1042,7 +1131,7 @@ FluContentPage{
                             width: 170
                             height: 34
 
-                            ProgressBar {
+                            FluProgressBar {
                                 anchors.left: parent.left
                                 anchors.right: progressText.left
                                 anchors.rightMargin: 8
@@ -1050,6 +1139,7 @@ FluContentPage{
                                 from: 0
                                 to: 1
                                 value: root.mountedProgress
+                                indeterminate: false
                             }
 
                             FluText {
@@ -1098,7 +1188,7 @@ FluContentPage{
                                         showWarning(qsTr("表格为空，无法单步执行"))
                                         return
                                     }
-                                    if (!mainWindow.stepHomeRun()) {
+                                    if (!mainWindow.stepHomeRun(root.buildRunOrderFromVisibleRows())) {
                                         showWarning(qsTr("没有勾选项，无法单步执行"))
                                         return
                                     }
@@ -1108,9 +1198,10 @@ FluContentPage{
                                     root.appendRunConsoleMessage(root.runCurrentRow, firstItem)
                                     root.runCurrentItemChanged(root.runCurrentRow, firstItem)
                                 } else {
-                                    mainWindow.stepHomeRun()
+                                    var prevRow = mainWindow.homeRunCurrentRow
+                                    mainWindow.stepHomeRun(root.buildRunOrderFromVisibleRows())
+                                    root.markTableRowMounted(prevRow)
                                     root.runCurrentRow = mainWindow.homeRunCurrentRow
-                                    root.refreshHomeTableFromState()
                                     root.syncCurrentRunHighlight()
                                 }
                                 showSuccess(qsTr("单步执行"))
@@ -1122,7 +1213,7 @@ FluContentPage{
 
             CubexFluTableView{
                 id:table_view
-                highlightRow: root.runCurrentRow
+                highlightRow: root.visibleRunCurrentRow
                 anchors{
                     left: parent.left
                     right: parent.right
@@ -1132,6 +1223,7 @@ FluContentPage{
                 anchors.topMargin: 5
                 onRowsChanged: {
                     root.checkBoxChanged()
+                    root.syncCurrentRunHighlight()
                 }
                 startRowIndex: (gagination.pageCurrent - 1) * gagination.__itemPerPage + 1
                 columnSource:[

@@ -24,9 +24,14 @@ FluWindow {
     property bool revealingTheme: false
     property var homeTableData: []
     property int homeTablePageCurrent: 1
+    property string homeNameKeyword: ""
+    property string homeLayerKeyword: ""
     property bool homeRunPaused: true
     property int homeRunCurrentRow: -1
+    property int homeRunLastMountedRow: -1
     property real homeMountedProgress: 0
+    property var homeRunOrder: []
+    property int homeRunOrderPos: -1
     property string serialSelectedComPort: ""
     property int serialSelectedBaudRate: 115200
     property var serialAvailableComPorts: []
@@ -68,11 +73,43 @@ FluWindow {
         }
     }
 
+    function matchesHomeFilter(rowData, nameKeyword, layerKeyword) {
+        var row = rowData || {}
+        var nameFilter = nameKeyword !== undefined ? nameKeyword : homeNameKeyword
+        var layerFilter = layerKeyword !== undefined ? layerKeyword : homeLayerKeyword
+        var nameValue = row.name || ""
+        var layerValue = row.layer || ""
+        var nameMatch = nameFilter === "" || nameValue.indexOf(nameFilter) !== -1
+        var layerMatch = layerFilter === "" || layerValue.indexOf(layerFilter) !== -1
+        return nameMatch && layerMatch
+    }
+
+    function filteredHomeRowIndices(nameKeyword, layerKeyword) {
+        var result = []
+        for (var i = 0; i < homeTableData.length; i++) {
+            if (matchesHomeFilter(homeTableData[i], nameKeyword, layerKeyword)) {
+                result.push(i)
+            }
+        }
+        return result
+    }
+
+    function visibleHomeRowPosition(rawRowIndex, nameKeyword, layerKeyword) {
+        var visibleRows = filteredHomeRowIndices(nameKeyword, layerKeyword)
+        for (var i = 0; i < visibleRows.length; i++) {
+            if (visibleRows[i] === rawRowIndex) {
+                return i
+            }
+        }
+        return -1
+    }
+
     function updateHomeMountedProgress() {
         var selectedCount = 0
         var mountedCount = 0
-        for (var i = 0; i < homeTableData.length; i++) {
-            var row = homeTableData[i]
+        var visibleRows = filteredHomeRowIndices()
+        for (var i = 0; i < visibleRows.length; i++) {
+            var row = homeTableData[visibleRows[i]]
             if (!row || !row.selected) {
                 continue
             }
@@ -110,7 +147,7 @@ FluWindow {
     }
 
     function isHomeRowSelected(rowIndex) {
-        return rowIndex >= 0 && rowIndex < homeTableData.length && !!homeTableData[rowIndex].selected
+        return rowIndex >= 0 && rowIndex < homeTableData.length && matchesHomeFilter(homeTableData[rowIndex]) && !!homeTableData[rowIndex].selected
     }
 
     function findNextSelectedHomeRow(startIndex) {
@@ -120,6 +157,45 @@ FluWindow {
             }
         }
         return -1
+    }
+
+    function buildHomeRunOrder(rawIndexList) {
+        var source = rawIndexList && rawIndexList.length !== undefined ? rawIndexList : filteredHomeRowIndices()
+        var order = []
+        for (var i = 0; i < source.length; i++) {
+            var rowIndex = Number(source[i])
+            if (!isFinite(rowIndex) || rowIndex < 0 || rowIndex >= homeTableData.length) {
+                continue
+            }
+            if (isHomeRowSelected(rowIndex)) {
+                order.push(rowIndex)
+            }
+        }
+        return order
+    }
+
+    function setHomeRunOrder(rawIndexList) {
+        homeRunOrder = buildHomeRunOrder(rawIndexList)
+        homeRunOrderPos = -1
+    }
+
+    function indexOfInHomeRunOrder(rowIndex) {
+        for (var i = 0; i < homeRunOrder.length; i++) {
+            if (homeRunOrder[i] === rowIndex) {
+                return i
+            }
+        }
+        return -1
+    }
+
+    function ensureHomeRunOrder(rawIndexList) {
+        if (rawIndexList && rawIndexList.length !== undefined) {
+            setHomeRunOrder(rawIndexList)
+            return
+        }
+        if (!homeRunOrder || homeRunOrder.length <= 0) {
+            setHomeRunOrder(filteredHomeRowIndices())
+        }
     }
 
     function buildHomeRowCommand(rowData) {
@@ -143,11 +219,13 @@ FluWindow {
             return false
         }
         var sentCount = 0
-        for (var i = 0; i < homeTableData.length; i++) {
-            if (!isHomeRowSelected(i)) {
+        var visibleRows = filteredHomeRowIndices()
+        for (var i = 0; i < visibleRows.length; i++) {
+            var rowIndex = visibleRows[i]
+            if (!isHomeRowSelected(rowIndex)) {
                 continue
             }
-            var cmd = buildHomeRowCommand(homeTableData[i])
+            var cmd = buildHomeRowCommand(homeTableData[rowIndex])
             if (cmd !== "" && serialPortManager.sendWithConsole(cmd)) {
                 sentCount += 1
             }
@@ -177,22 +255,30 @@ FluWindow {
         return ok
     }
 
-    function startHomeRun() {
+    function startHomeRun(rawIndexList) {
         if (homeTableData.length <= 0) {
             return false
         }
-        if (homeRunCurrentRow >= 0 && homeRunCurrentRow < homeTableData.length && isHomeRowSelected(homeRunCurrentRow)) {
-            homeRunPaused = false
-            dispatchHomeWorkRow(homeRunCurrentRow)
-            smtWork.start()
-            return true
-        }
-        var firstSelectedRow = findNextSelectedHomeRow(0)
-        if (firstSelectedRow < 0) {
+
+        ensureHomeRunOrder(rawIndexList)
+        if (!homeRunOrder || homeRunOrder.length <= 0) {
             return false
         }
+
+        if (homeRunCurrentRow >= 0 && homeRunCurrentRow < homeTableData.length && isHomeRowSelected(homeRunCurrentRow)) {
+            var currentPos = indexOfInHomeRunOrder(homeRunCurrentRow)
+            if (currentPos >= 0) {
+                homeRunOrderPos = currentPos
+                homeRunPaused = false
+                dispatchHomeWorkRow(homeRunCurrentRow)
+                smtWork.start()
+                return true
+            }
+        }
+
         homeRunPaused = false
-        homeRunCurrentRow = firstSelectedRow
+        homeRunOrderPos = 0
+        homeRunCurrentRow = homeRunOrder[homeRunOrderPos]
         dispatchHomeWorkRow(homeRunCurrentRow)
         smtWork.start()
         return true
@@ -206,17 +292,20 @@ FluWindow {
     function stopHomeRun() {
         homeRunPaused = true
         homeRunCurrentRow = -1
+        homeRunOrderPos = -1
         smtWork.stop()
     }
 
-    function stepHomeRun() {
+    function stepHomeRun(rawIndexList) {
+        ensureHomeRunOrder(rawIndexList)
+        if (!homeRunOrder || homeRunOrder.length <= 0) {
+            return false
+        }
+
         if (homeRunCurrentRow < 0) {
-            var firstSelectedRow = findNextSelectedHomeRow(0)
-            if (firstSelectedRow < 0) {
-                return false
-            }
             homeRunPaused = true
-            homeRunCurrentRow = firstSelectedRow
+            homeRunOrderPos = 0
+            homeRunCurrentRow = homeRunOrder[homeRunOrderPos]
             dispatchHomeWorkRow(homeRunCurrentRow)
             return true
         }
@@ -232,15 +321,24 @@ FluWindow {
         var previous = normalizeHomeRow(rows[homeRunCurrentRow], homeRunCurrentRow + 1)
         previous.mounted = true
         rows[homeRunCurrentRow] = previous
+        homeRunLastMountedRow = homeRunCurrentRow
         homeTableData = rows
         updateHomeMountedProgress()
 
-        var nextRow = findNextSelectedHomeRow(homeRunCurrentRow + 1)
-        if (nextRow < 0) {
+        var currentPos = indexOfInHomeRunOrder(homeRunCurrentRow)
+        if (currentPos < 0) {
             stopHomeRun()
             return
         }
-        homeRunCurrentRow = nextRow
+
+        var nextPos = currentPos + 1
+        if (nextPos >= homeRunOrder.length) {
+            stopHomeRun()
+            return
+        }
+
+        homeRunOrderPos = nextPos
+        homeRunCurrentRow = homeRunOrder[homeRunOrderPos]
         dispatchHomeWorkRow(homeRunCurrentRow)
     }
     
