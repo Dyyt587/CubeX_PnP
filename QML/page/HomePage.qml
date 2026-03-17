@@ -25,71 +25,21 @@ FluContentPage{
     signal checkBoxChanged
     signal runCurrentItemChanged(int rowIndex, var item)
 
-    function buildUiRow(rawRow, fallbackRowIndex) {
-        var row = mainWindow.normalizeHomeRow(rawRow, fallbackRowIndex)
-        return {
-            rowIndex: row.rowIndex,
-            checkbox: table_view.customItem(delegates.com_checbox, {checked: row.selected}),
-            name: row.name,
-            avatar: row.avatar,
-            age: row.age,
-            address: row.address,
-            nickname: row.nickname,
-            longstring: row.longstring,
-            mounted: table_view.customItem(delegates.com_mounted_checkbox, {checked: row.mounted}),
-            layer: row.layer,
-            quantity: row.quantity,
-            component_name: row.component_name,
-            action: table_view.customItem(delegates.com_action),
-            _minimumHeight: row._minimumHeight,
-            _key: row._key
-        }
-    }
-
-    function extractRawRow(rowData, fallbackRowIndex) {
-        return mainWindow.normalizeHomeRow({
-            rowIndex: rowData.rowIndex || fallbackRowIndex,
-            selected: rowData.checkbox && rowData.checkbox.options && rowData.checkbox.options.checked,
-            name: rowData.name,
-            avatar: rowData.avatar,
-            age: rowData.age,
-            address: rowData.address,
-            nickname: rowData.nickname,
-            longstring: rowData.longstring,
-            mounted: rowData.mounted && rowData.mounted.options && rowData.mounted.options.checked,
-            layer: rowData.layer,
-            quantity: rowData.quantity,
-            component_name: rowData.component_name,
-            _minimumHeight: rowData._minimumHeight,
-            _key: rowData._key
-        }, fallbackRowIndex)
-    }
-
     function refreshHomeTableFromState() {
-        var rows = []
-        for (var i = 0; i < mainWindow.homeTableData.length; i++) {
-            rows.push(buildUiRow(mainWindow.homeTableData[i], i + 1))
-        }
-        table_view.dataSource = rows
+        table_view.setHomeRowsFromRaw(mainWindow.homeTableData, mainWindow.homeTablePageCurrent)
         if (mainWindow.homeTablePageCurrent > 0) {
             gagination.pageCurrent = mainWindow.homeTablePageCurrent
         }
     }
 
     function persistHomeTableData() {
-        var data = []
-        if (table_view && table_view.sourceModel) {
-            for (var i = 0; i < table_view.sourceModel.rowCount; i++) {
-                data.push(extractRawRow(table_view.sourceModel.getRow(i), i + 1))
-            }
-        }
-        mainWindow.setHomeTableData(data)
+        mainWindow.setHomeTableData(table_view.collectHomeRawRowsFromSource())
         mainWindow.homeTablePageCurrent = gagination.pageCurrent
     }
 
     function applyHomeTableData(data) {
         mainWindow.setHomeTableData(data)
-        refreshHomeTableFromState()
+        table_view.setHomeRowsFromRaw(mainWindow.homeTableData, gagination.pageCurrent)
         mainWindow.homeTablePageCurrent = gagination.pageCurrent
     }
 
@@ -98,10 +48,7 @@ FluContentPage{
     }
 
     function getCurrentRunItem() {
-        if (runCurrentRow < 0 || runCurrentRow >= mainWindow.homeTableData.length) {
-            return null
-        }
-        return buildUiRow(mainWindow.homeTableData[runCurrentRow], runCurrentRow + 1)
+        return table_view.getHomeUiRowFromRaw(mainWindow.homeTableData, runCurrentRow)
     }
 
     function isRowSelected(rowIndex) {
@@ -113,7 +60,7 @@ FluContentPage{
     }
 
     function buildRowCommand(rowData) {
-        return mainWindow.buildHomeRowCommand(extractRawRow(rowData, rowData ? rowData.rowIndex : 0))
+        return mainWindow.buildHomeRowCommand(table_view.homeExtractRawRow(rowData, rowData ? rowData.rowIndex : 0))
     }
 
     function sendSelectedRowsToController() {
@@ -619,6 +566,7 @@ FluContentPage{
                 highlightRow: root.visibleRunCurrentRow
                 useHomePreset: true
                 homeDelegates: delegates
+                homeNormalizer: mainWindow.normalizeHomeRow
                 pageCurrent: gagination.pageCurrent
                 itemPerPage: gagination.__itemPerPage
                 anchors{

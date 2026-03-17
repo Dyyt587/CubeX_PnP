@@ -21,6 +21,8 @@ Item {
     property bool useHomePreset: false
     /// HomePage 委托提供者（如 HomePageTableDelegates 实例）
     property var homeDelegates
+    /// HomePage 行标准化函数（如 mainWindow.normalizeHomeRow）
+    property var homeNormalizer
     /// 分页参数（用于计算 startRowIndex）
     property int pageCurrent: 1
     property int itemPerPage: 1000
@@ -179,6 +181,83 @@ Item {
             }
         }
         return data
+    }
+
+    function homeBuildUiRow(rawRow, fallbackRowIndex) {
+        if (!homeNormalizer || !homeDelegates) {
+            return rawRow
+        }
+        var row = homeNormalizer(rawRow, fallbackRowIndex)
+        return {
+            rowIndex: row.rowIndex,
+            checkbox: _tableView.customItem(homeDelegates.com_checbox, {checked: row.selected}),
+            name: row.name,
+            avatar: row.avatar,
+            age: row.age,
+            address: row.address,
+            nickname: row.nickname,
+            longstring: row.longstring,
+            mounted: _tableView.customItem(homeDelegates.com_mounted_checkbox, {checked: row.mounted}),
+            layer: row.layer,
+            quantity: row.quantity,
+            component_name: row.component_name,
+            action: _tableView.customItem(homeDelegates.com_action),
+            _minimumHeight: row._minimumHeight,
+            _key: row._key
+        }
+    }
+
+    function homeExtractRawRow(rowData, fallbackRowIndex) {
+        if (!homeNormalizer) {
+            return rowData
+        }
+        return homeNormalizer({
+            rowIndex: rowData.rowIndex || fallbackRowIndex,
+            selected: rowData.checkbox && rowData.checkbox.options && rowData.checkbox.options.checked,
+            name: rowData.name,
+            avatar: rowData.avatar,
+            age: rowData.age,
+            address: rowData.address,
+            nickname: rowData.nickname,
+            longstring: rowData.longstring,
+            mounted: rowData.mounted && rowData.mounted.options && rowData.mounted.options.checked,
+            layer: rowData.layer,
+            quantity: rowData.quantity,
+            component_name: rowData.component_name,
+            _minimumHeight: rowData._minimumHeight,
+            _key: rowData._key
+        }, fallbackRowIndex)
+    }
+
+    function setHomeRowsFromRaw(rawRows, targetPageCurrent) {
+        var rows = []
+        var source = rawRows || []
+        for (var i = 0; i < source.length; i++) {
+            rows.push(homeBuildUiRow(source[i], i + 1))
+        }
+        _tableView.dataSource = rows
+        if (targetPageCurrent !== undefined && targetPageCurrent > 0) {
+            pageCurrent = targetPageCurrent
+        }
+    }
+
+    function collectHomeRawRowsFromSource() {
+        var data = []
+        if (!_tableView.sourceModel) {
+            return data
+        }
+        for (var i = 0; i < _tableView.sourceModel.rowCount; i++) {
+            data.push(homeExtractRawRow(_tableView.sourceModel.getRow(i), i + 1))
+        }
+        return data
+    }
+
+    function getHomeUiRowFromRaw(rawRows, rawRowIndex) {
+        var source = rawRows || []
+        if (rawRowIndex < 0 || rawRowIndex >= source.length) {
+            return null
+        }
+        return homeBuildUiRow(source[rawRowIndex], rawRowIndex + 1)
     }
 
     function updateStartRowIndex() {
