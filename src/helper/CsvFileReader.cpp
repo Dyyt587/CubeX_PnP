@@ -4,6 +4,7 @@
 #include <QUrl>
 #include <QDebug>
 #include <QFileInfo>
+#include <QDir>
 
 CsvFileReader::CsvFileReader(QObject *parent)
     : QObject(parent)
@@ -146,6 +147,22 @@ QVariantList CsvFileReader::readCsvFile(const QString &filePath)
     }
 
     emit fileParsed(result);
+    return result;
+}
+
+QStringList CsvFileReader::csvFilesInWorkingDirectory() const
+{
+    QDir dir(QDir::currentPath());
+    QStringList filters;
+    filters << "*.csv" << "*.CSV";
+
+    const QFileInfoList files = dir.entryInfoList(filters, QDir::Files, QDir::Name);
+    QStringList result;
+    result.reserve(files.size());
+
+    for (const QFileInfo &info : files) {
+        result.append(info.absoluteFilePath());
+    }
     return result;
 }
 

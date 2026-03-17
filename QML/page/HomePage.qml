@@ -135,50 +135,8 @@ FluContentPage{
         serialPortManager.appendConsoleMessage("[RUN] row=" + rowIndex + " item=" + JSON.stringify(item))
     }
 
-    function buildRunOrderFromVisibleRows() {
-        var order = []
-        var keyToRawIndex = {}
-        for (var i = 0; i < mainWindow.homeTableData.length; i++) {
-            var raw = mainWindow.homeTableData[i]
-            if (!raw || !raw._key) {
-                continue
-            }
-            keyToRawIndex[raw._key] = i
-        }
-
-        for (var row = 0; row < table_view.rows; row++) {
-            var visible = table_view.getRow(row)
-            if (!visible || !visible._key) {
-                continue
-            }
-            var rawIndex = keyToRawIndex[visible._key]
-            if (rawIndex === undefined) {
-                continue
-            }
-            order.push(rawIndex)
-        }
-        return order
-    }
-
-    function resolveVisibleRunCurrentRow() {
-        if (runCurrentRow < 0 || runCurrentRow >= mainWindow.homeTableData.length) {
-            return -1
-        }
-        var current = mainWindow.homeTableData[runCurrentRow]
-        if (!current || !current._key) {
-            return -1
-        }
-        for (var i = 0; i < table_view.rows; i++) {
-            var row = table_view.getRow(i)
-            if (row && row._key === current._key) {
-                return i
-            }
-        }
-        return -1
-    }
-
     function syncCurrentRunHighlight() {
-        visibleRunCurrentRow = resolveVisibleRunCurrentRow()
+        visibleRunCurrentRow = table_view.resolveVisibleRowByRawIndex(mainWindow.homeTableData, runCurrentRow)
         // 叠加层 Rectangle 会自动跟随 runCurrentRow，这里只负责滚动视图到当前行
         if (visibleRunCurrentRow >= 0 && visibleRunCurrentRow < table_view.rows) {
             if (table_view.view && typeof table_view.view.positionViewAtRow === "function") {
@@ -187,28 +145,10 @@ FluContentPage{
         }
     }
 
-    function markTableRowMounted(rawRowIndex) {
-        if (rawRowIndex < 0 || rawRowIndex >= mainWindow.homeTableData.length) {
-            return
-        }
-        var targetKey = mainWindow.homeTableData[rawRowIndex]._key
-        if (!targetKey) {
-            return
-        }
-        for (var i = 0; i < table_view.rows; i++) {
-            var obj = table_view.getRow(i)
-            if (obj && obj._key === targetKey) {
-                obj.mounted = table_view.customItem(delegates.com_mounted_checkbox, {checked: true})
-                table_view.setRow(i, obj)
-                return
-            }
-        }
-    }
-
     function moveToNextRunItem() {
         var previousRow = mainWindow.homeRunCurrentRow
         mainWindow.advanceHomeRun()
-        markTableRowMounted(previousRow)
+        table_view.markMountedByRawIndex(mainWindow.homeTableData, previousRow, delegates.com_mounted_checkbox)
         runPaused = mainWindow.homeRunPaused
         runCurrentRow = mainWindow.homeRunCurrentRow
         updateMountedProgress()
@@ -228,7 +168,7 @@ FluContentPage{
             return
         }
 
-        var runOrder = buildRunOrderFromVisibleRows()
+        var runOrder = table_view.buildRunOrderFromVisibleRows(mainWindow.homeTableData)
         if (!mainWindow.startHomeRun(runOrder)) {
             showWarning(qsTr("没有勾选项，无法开始"))
             return
@@ -247,24 +187,9 @@ FluContentPage{
         runPaused = mainWindow.homeRunPaused
     }
 
-    function clearMountedChecksInTable() {
-        if (!table_view || !table_view.sourceModel) {
-            return
-        }
-        var sourceModel = table_view.sourceModel
-        for (var i = 0; i < sourceModel.rowCount; i++) {
-            var item = sourceModel.getRow(i)
-            if (!item) {
-                continue
-            }
-            item.mounted = table_view.customItem(delegates.com_mounted_checkbox, {checked: false})
-            sourceModel.setRow(i, item)
-        }
-    }
-
     function stopRunLoop() {
         mainWindow.stopHomeRun(true)
-        clearMountedChecksInTable()
+        table_view.clearMountedChecks(delegates.com_mounted_checkbox)
         runPaused = mainWindow.homeRunPaused
         runCurrentRow = mainWindow.homeRunCurrentRow
         updateMountedProgress()
@@ -278,24 +203,7 @@ FluContentPage{
     }
 
     function deleteSelectionRows() {
-        var data = []
-        var rows = []
-        for (var i = 0; i < table_view.rows; i++) {
-            var item = table_view.getRow(i)
-            rows.push(item)
-            if (!item.checkbox.options.checked) {
-                data.push(item)
-            }
-        }
-        var sourceModel = table_view.sourceModel
-        for (i = 0; i < sourceModel.rowCount; i++) {
-            var sourceItem = sourceModel.getRow(i)
-            var foundItem = rows.find(item => item._key === sourceItem._key)
-            if (!foundItem) {
-                data.push(sourceItem)
-            }
-        }
-        applyHomeTableData(data)
+        applyHomeTableData(table_view.dataAfterDeletingSelected())
         updateMountedProgress()
     }
 
@@ -333,7 +241,7 @@ FluContentPage{
                 showWarning(qsTr("表格为空，无法单步执行"))
                 return
             }
-            if (!mainWindow.stepHomeRun(buildRunOrderFromVisibleRows())) {
+            if (!mainWindow.stepHomeRun(table_view.buildRunOrderFromVisibleRows(mainWindow.homeTableData))) {
                 showWarning(qsTr("没有勾选项，无法单步执行"))
                 return
             }
@@ -344,8 +252,8 @@ FluContentPage{
             runCurrentItemChanged(runCurrentRow, firstItem)
         } else {
             var prevRow = mainWindow.homeRunCurrentRow
-            mainWindow.stepHomeRun(buildRunOrderFromVisibleRows())
-            markTableRowMounted(prevRow)
+            mainWindow.stepHomeRun(table_view.buildRunOrderFromVisibleRows(mainWindow.homeTableData))
+            table_view.markMountedByRawIndex(mainWindow.homeTableData, prevRow, delegates.com_mounted_checkbox)
             runCurrentRow = mainWindow.homeRunCurrentRow
             syncCurrentRunHighlight()
         }
@@ -397,7 +305,7 @@ FluContentPage{
             // 页面可见时会在 onVisibleChanged 中主动同步一次。
         }
         function onHomeRunCurrentRowChanged() {
-            markTableRowMounted(mainWindow.homeRunLastMountedRow)
+            table_view.markMountedByRawIndex(mainWindow.homeTableData, mainWindow.homeRunLastMountedRow, delegates.com_mounted_checkbox)
             runCurrentRow = mainWindow.homeRunCurrentRow
             syncCurrentRunHighlight()
         }
@@ -709,6 +617,10 @@ FluContentPage{
             CubexFluTableView{
                 id:table_view
                 highlightRow: root.visibleRunCurrentRow
+                useHomePreset: true
+                homeDelegates: delegates
+                pageCurrent: gagination.pageCurrent
+                itemPerPage: gagination.__itemPerPage
                 anchors{
                     left: parent.left
                     right: parent.right
@@ -720,83 +632,6 @@ FluContentPage{
                     root.checkBoxChanged()
                     root.syncCurrentRunHighlight()
                 }
-                startRowIndex: (gagination.pageCurrent - 1) * gagination.__itemPerPage + 1
-                columnSource:[
-                    {
-                        title: table_view.customItem(delegates.com_column_checbox,{checked:true}),
-                        dataIndex: 'checkbox',
-                        frozen: true
-                    },
-                    {
-                        title: table_view.customItem(delegates.com_column_filter_name,{title:qsTr("Name")}),
-                        dataIndex: 'name',
-                        readOnly:true
-                    },
-                    {
-                        title: qsTr("封装"),
-                        dataIndex: 'avatar',
-                        width:150,
-                        minimumWidth:100,
-                        maximumWidth:250
-                    },
-                    {
-                        title: table_view.customItem(delegates.com_column_sort_age,{sort:0}),
-                        dataIndex: 'age',
-                        editDelegate:delegates.com_combobox,
-                        width:100,
-                        minimumWidth:100,
-                        maximumWidth:100
-                    },
-                    {
-                        title: qsTr("x坐标"),
-                        dataIndex: 'address',
-                        editDelegate: delegates.com_auto_suggestbox,
-                        width:200,
-                        minimumWidth:100,
-                        maximumWidth:250
-                    },
-                    {
-                        title: qsTr("y坐标"),
-                        dataIndex: 'nickname',
-                        width:100,
-                        minimumWidth:80,
-                        maximumWidth:200
-                    },
-                    {
-                        title: qsTr("角度"),
-                        dataIndex: 'longstring',
-                        width:100,
-                        minimumWidth:80,
-                        maximumWidth:150
-                    },
-                    {
-                        title: qsTr("已贴装"),
-                        dataIndex: 'mounted',
-                        width:100,
-                        minimumWidth:80,
-                        maximumWidth:150
-                    },
-                    {
-                        title: table_view.customItem(delegates.com_column_filter_layer,{}),
-                        dataIndex: 'layer',
-                        width:80,
-                        minimumWidth:60,
-                        maximumWidth:120
-                    },
-                    {
-                        title: qsTr("器件名字"),
-                        dataIndex: 'component_name',
-                        width:120,
-                        minimumWidth:100,
-                        maximumWidth:200
-                    },
-                    {
-                        title: qsTr("Options"),
-                        dataIndex: 'action',
-                        width:160,
-                        frozen:true
-                    }
-                ]
             }
 
             FluPagination{
@@ -821,642 +656,80 @@ FluContentPage{
             }
         }
 
-        // 右侧：控制区域
-        Item {
-            clip: true
-            implicitWidth: root.width * 0.3
-            implicitHeight: root.height
-            SplitView.minimumWidth: 250
-            SplitView.fillHeight: true
-
-            FluFrame {
-                anchors.fill: parent
-                padding: 20
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    spacing: 20
-
-                    FluText {
-                        text: qsTr("运动控制")
-                        font: FluTextStyle.Title
-                    }
-
-                    // 主控制区域：左侧XY+Z轴，右侧速度和位置
-                    RowLayout {
-                        Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    spacing: 15
-
-                    // 左侧：XY平面 + Z轴控制
-                    ColumnLayout {
-                        Layout.alignment: Qt.AlignTop
-                        spacing: 15
-
-                        // XY平面控制 (3x3布局)
-                        ColumnLayout {
-                            spacing: 5
-
-                            FluText {
-                                text: qsTr("XY 平面")
-                                font: FluTextStyle.Subtitle
-                                Layout.alignment: Qt.AlignHCenter
-                            }
-
-                            // 第一行：左上、上、右上
-                            RowLayout {
-                                spacing: 5
-                                Layout.alignment: Qt.AlignHCenter
-                                
-                                FluButton {
-                                    text: "↖"
-                                    font.pixelSize: 24
-                                    Layout.preferredWidth: 50
-                                    Layout.preferredHeight: 50
-                                    onClicked: showSuccess(qsTr("左上 (-X+Y)"))
-                                }
-                                FluButton {
-                                    text: "↑"
-                                    font.pixelSize: 24
-                                    Layout.preferredWidth: 50
-                                    Layout.preferredHeight: 50
-                                    onClicked: showSuccess(qsTr("上 (+Y)"))
-                                }
-                                FluButton {
-                                    text: "↗"
-                                    font.pixelSize: 24
-                                    Layout.preferredWidth: 50
-                                    Layout.preferredHeight: 50
-                                    onClicked: showSuccess(qsTr("右上 (+X+Y)"))
-                                }
-                            }
-
-                            // 第二行：左、原点、右
-                            RowLayout {
-                                spacing: 5
-                                Layout.alignment: Qt.AlignHCenter
-                                
-                                FluButton {
-                                    text: "←"
-                                    font.pixelSize: 24
-                                    Layout.preferredWidth: 50
-                                    Layout.preferredHeight: 50
-                                    onClicked: showSuccess(qsTr("左 (-X)"))
-                                }
-                                FluIconButton {
-                                    iconSource: FluentIcons.Home
-                                    Layout.preferredWidth: 50
-                                    Layout.preferredHeight: 50
-                                    onClicked: showSuccess(qsTr("归零"))
-                                }
-                                FluButton {
-                                    text: "→"
-                                    font.pixelSize: 24
-                                    Layout.preferredWidth: 50
-                                    Layout.preferredHeight: 50
-                                    onClicked: showSuccess(qsTr("右 (+X)"))
-                                }
-                            }
-
-                            // 第三行：左下、下、右下
-                            RowLayout {
-                                spacing: 5
-                                Layout.alignment: Qt.AlignHCenter
-                                
-                                FluButton {
-                                    text: "↙"
-                                    font.pixelSize: 24
-                                    Layout.preferredWidth: 50
-                                    Layout.preferredHeight: 50
-                                    onClicked: showSuccess(qsTr("左下 (-X-Y)"))
-                                }
-                                FluButton {
-                                    text: "↓"
-                                    font.pixelSize: 24
-                                    Layout.preferredWidth: 50
-                                    Layout.preferredHeight: 50
-                                    onClicked: showSuccess(qsTr("下 (-Y)"))
-                                }
-                                FluButton {
-                                    text: "↘"
-                                    font.pixelSize: 24
-                                    Layout.preferredWidth: 50
-                                    Layout.preferredHeight: 50
-                                    onClicked: showSuccess(qsTr("右下 (+X-Y)"))
-                                }
-                            }
-                        }
-
-                        // Z轴控制
-                        RowLayout {
-                            Layout.alignment: Qt.AlignHCenter
-                            spacing: 20
-
-                            // Z1轴控制
-                            ColumnLayout {
-                                spacing: 5
-
-                                FluText {
-                                    text: qsTr("Z1 轴")
-                                    font: FluTextStyle.Subtitle
-                                    Layout.alignment: Qt.AlignHCenter
-                                }
-
-                                // Z轴上下控制
-                                RowLayout {
-                                    spacing: 5
-                                    Layout.alignment: Qt.AlignHCenter
-                                    
-                                    FluButton {
-                                        text: "↑"
-                                        font.pixelSize: 20
-                                        Layout.preferredWidth: 40
-                                        Layout.preferredHeight: 40
-                                        onClicked: showSuccess(qsTr("Z1 上升 (+Z1)"))
-                                    }
-                                    FluButton {
-                                        text: "↓"
-                                        font.pixelSize: 20
-                                        Layout.preferredWidth: 40
-                                        Layout.preferredHeight: 40
-                                        onClicked: showSuccess(qsTr("Z1 下降 (-Z1)"))
-                                    }
-                                }
-
-                                // Z轴回零
-                                FluIconButton {
-                                    iconSource: FluentIcons.Home
-                                    Layout.preferredWidth: 40
-                                    Layout.preferredHeight: 40
-                                    Layout.alignment: Qt.AlignHCenter
-                                    onClicked: showSuccess(qsTr("Z1 归零"))
-                                }
-
-                                FluText {
-                                    text: qsTr("R1 轴")
-                                    font: FluTextStyle.Caption
-                                    Layout.alignment: Qt.AlignHCenter
-                                }
-
-                                // R轴旋转控制
-                                RowLayout {
-                                    spacing: 5
-                                    Layout.alignment: Qt.AlignHCenter
-                                    
-                                    FluButton {
-                                        text: "↶"
-                                        font.pixelSize: 20
-                                        Layout.preferredWidth: 40
-                                        Layout.preferredHeight: 40
-                                        onClicked: showSuccess(qsTr("R1 逆时针"))
-                                    }
-                                    FluButton {
-                                        text: "↷"
-                                        font.pixelSize: 20
-                                        Layout.preferredWidth: 40
-                                        Layout.preferredHeight: 40
-                                        onClicked: showSuccess(qsTr("R1 顺时针"))
-                                    }
-                                }
-                            }
-
-                            // Z2轴控制
-                            ColumnLayout {
-                                spacing: 5
-
-                                FluText {
-                                    text: qsTr("Z2 轴")
-                                    font: FluTextStyle.Subtitle
-                                    Layout.alignment: Qt.AlignHCenter
-                                }
-
-                                // Z轴上下控制
-                                RowLayout {
-                                    spacing: 5
-                                    Layout.alignment: Qt.AlignHCenter
-                                    
-                                    FluButton {
-                                        text: "↑"
-                                        font.pixelSize: 20
-                                        Layout.preferredWidth: 40
-                                        Layout.preferredHeight: 40
-                                        onClicked: showSuccess(qsTr("Z2 上升 (+Z2)"))
-                                    }
-                                    FluButton {
-                                        text: "↓"
-                                        font.pixelSize: 20
-                                        Layout.preferredWidth: 40
-                                        Layout.preferredHeight: 40
-                                        onClicked: showSuccess(qsTr("Z2 下降 (-Z2)"))
-                                    }
-                                }
-
-                                // Z轴回零
-                                FluIconButton {
-                                    iconSource: FluentIcons.Home
-                                    Layout.preferredWidth: 40
-                                    Layout.preferredHeight: 40
-                                    Layout.alignment: Qt.AlignHCenter
-                                    onClicked: showSuccess(qsTr("Z2 归零"))
-                                }
-
-                                FluText {
-                                    text: qsTr("R2 轴")
-                                    font: FluTextStyle.Caption
-                                    Layout.alignment: Qt.AlignHCenter
-                                }
-
-                                // R轴旋转控制
-                                RowLayout {
-                                    spacing: 5
-                                    Layout.alignment: Qt.AlignHCenter
-                                    
-                                    FluButton {
-                                        text: "↶"
-                                        font.pixelSize: 20
-                                        Layout.preferredWidth: 40
-                                        Layout.preferredHeight: 40
-                                        onClicked: showSuccess(qsTr("R2 逆时针"))
-                                    }
-                                    FluButton {
-                                        text: "↷"
-                                        font.pixelSize: 20
-                                        Layout.preferredWidth: 40
-                                        Layout.preferredHeight: 40
-                                        onClicked: showSuccess(qsTr("R2 顺时针"))
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // 右侧：速度滑条和坐标显示
-                    ColumnLayout {
-                        spacing: 10
-                        Layout.preferredWidth: 80
-                        Layout.alignment: Qt.AlignTop
-
-                        FluText {
-                            text: qsTr("速度")
-                            font: FluTextStyle.Caption
-                            Layout.alignment: Qt.AlignHCenter
-                        }
-
-                        FluSlider {
-                            id: speedSlider
-                            Layout.preferredHeight: 250
-                            Layout.preferredWidth: 50
-                            Layout.alignment: Qt.AlignHCenter
-                            orientation: Qt.Vertical
-                            from: 0
-                            to: 100
-                            value: 50
-                            stepSize: 10
-                            snapMode: Slider.SnapAlways
-                        }
-
-                        FluText {
-                            id: speedValue
-                            text: speedSlider.value + "%"
-                            font: FluTextStyle.BodyStrong
-                            color: FluTheme.primaryColor
-                            Layout.alignment: Qt.AlignHCenter
-                        }
-
-                        Rectangle {
-                            Layout.fillWidth: true
-                            height: 1
-                            color: FluTheme.dividerColor
-                            Layout.topMargin: 5
-                            Layout.bottomMargin: 5
-                        }
-
-                        FluText {
-                            text: qsTr("当前位置")
-                            font: FluTextStyle.Caption
-                            Layout.alignment: Qt.AlignHCenter
-                        }
-
-                        RowLayout {
-                            spacing: 8
-                            Layout.alignment: Qt.AlignHCenter
-
-                            // XYZ列
-                            ColumnLayout {
-                                spacing: 3
-
-                                FluText {
-                                    id: posX
-                                    text: "X: 200.00mm"
-                                    font: FluTextStyle.Caption
-                                    Layout.alignment: Qt.AlignLeft
-                                }
-                                FluText {
-                                    id: posY
-                                    text: "Y: 200.00mm"
-                                    font: FluTextStyle.Caption
-                                    Layout.alignment: Qt.AlignLeft
-                                }
-                                FluText {
-                                    id: posZ
-                                    text: "Z: 200.00mm"
-                                    font: FluTextStyle.Caption
-                                    Layout.alignment: Qt.AlignLeft
-                                }
-                            }
-
-                            // 分割线
-                            Rectangle {
-                                Layout.preferredWidth: 1
-                                Layout.preferredHeight: 50
-                                color: FluTheme.dividerColor
-                            }
-
-                            // R1 R2列
-                            ColumnLayout {
-                                spacing: 3
-
-                                FluText {
-                                    id: posR1
-                                    text: "R1: 0.00°"
-                                    font: FluTextStyle.Caption
-                                    Layout.alignment: Qt.AlignLeft
-                                }
-                                FluText {
-                                    id: posR2
-                                    text: "R2: 0.00°"
-                                    font: FluTextStyle.Caption
-                                    Layout.alignment: Qt.AlignLeft
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 步进距离选择
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    Layout.leftMargin: 10
-                    Layout.rightMargin: 10
-                    spacing: 5
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 10
-
-                        FluText {
-                            text: qsTr("移动距离:")
-                            font: FluTextStyle.Body
-                        }
-
-                        FluText {
-                            id: distanceValue
-                            text: "10 mm"
-                            font: FluTextStyle.BodyStrong
-                            color: FluTheme.primaryColor
-                        }
-                    }
-
-                    FluSlider {
-                        id: distanceSlider
-                        Layout.fillWidth: true
-                        from: 0
-                        to: 3
-                        stepSize: 1
-                        value: 2
-                        snapMode: Slider.SnapAlways
-                        
-                        onValueChanged: {
-                            var distances = [0.1, 1, 10, 50]
-                            distanceValue.text = distances[value] + " mm"
-                        }
-                        
-                        Component.onCompleted: {
-                            var distances = [0.1, 1, 10, 50]
-                            distanceValue.text = distances[value] + " mm"
-                        }
-                    }
-
-                    Row {
-                        Layout.fillWidth: true
-                        spacing: 0
-
-                        FluText {
-                            text: "0.1"
-                            font: FluTextStyle.Caption
-                            width: parent.width / 4
-                            horizontalAlignment: Text.AlignLeft
-                        }
-                        FluText {
-                            text: "1"
-                            font: FluTextStyle.Caption
-                            width: parent.width / 4
-                            horizontalAlignment: Text.AlignHCenter
-                        }
-                        FluText {
-                            text: "10"
-                            font: FluTextStyle.Caption
-                            width: parent.width / 4
-                            horizontalAlignment: Text.AlignHCenter
-                        }
-                        FluText {
-                            text: "50"
-                            font: FluTextStyle.Caption
-                            width: parent.width / 4
-                            horizontalAlignment: Text.AlignRight
-                        }
-                    }
-                }
-
-                // 摄像头预览区域
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 200
-                    Layout.leftMargin: 10
-                    Layout.rightMargin: 10
-                    spacing: 10
-
-                    // 摄像头选择下拉框
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 10
-
-                        FluText {
-                            text: qsTr("摄像头:")
-                            font: FluTextStyle.Body
-                        }
-
-                        FluComboBox {
-                            id: cameraSelector
-                            Layout.fillWidth: true
-                            model: [
-                                qsTr("顶部黑白"),
-                                qsTr("顶部彩色"),
-                                qsTr("底部黑白"),
-                                qsTr("底部彩色")
-                            ]
-                            enabled: true
-                            currentIndex: homePreviewRole
-                            onCurrentIndexChanged: {
-                                if (currentIndex >= 0) {
-                                    homePreviewRole = currentIndex
-                                }
-                            }
-                        }
-                    }
-
-                    // 摄像头预览（单窗口，按下拉框切换）
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        color: "#000000"
-                        border.color: FluTheme.dividerColor
-                        border.width: 1
-                        radius: 4
-                        clip: true
-
-                        readonly property bool previewOpened: (homePreviewRole === 0 && cameraDeviceManager.topCameraOpened)
-                                                           || (homePreviewRole === 1 && cameraDeviceManager.topCameraOpened)
-                                                           || (homePreviewRole === 2 && cameraDeviceManager.bottomCameraOpened)
-                                                           || (homePreviewRole === 3 && cameraDeviceManager.bottomCameraOpened)
-                        readonly property string bwSource: homePreviewRole < 2
-                                                         ? ("image://opencvpreview/top?" + openCvPreviewManager.topFrameToken)
-                                                         : ("image://opencvpreview/bottom?" + openCvPreviewManager.bottomFrameToken)
-                        readonly property string colorSource: homePreviewRole < 2
-                                                            ? ("image://opencvpreview/top_color?" + openCvPreviewManager.topFrameToken)
-                                                            : ("image://opencvpreview/bottom_color?" + openCvPreviewManager.bottomFrameToken)
-                        readonly property bool showColor: homePreviewRole === 1 || homePreviewRole === 3
-
-                        Image {
-                            anchors.fill: parent
-                            visible: parent.previewOpened
-                            fillMode: Image.PreserveAspectFit
-                            cache: false
-                            source: parent.showColor ? parent.colorSource : parent.bwSource
-                        }
-
-                        DraggableFocusOverlay {
-                            anchors.fill: parent
-                            active: parent.previewOpened
-                        }
-
-                        Rectangle {
-                            anchors.right: parent.right
-                            anchors.bottom: parent.bottom
-                            anchors.rightMargin: 8
-                            anchors.bottomMargin: 6
-                            visible: parent.previewOpened
-                            radius: 4
-                            color: FluTheme.dark ? Qt.rgba(0, 0, 0, 0.45) : Qt.rgba(1, 1, 1, 0.55)
-                            width: homeFpsText.implicitWidth + 10
-                            height: homeFpsText.implicitHeight + 4
-
-                            FluText {
-                                id: homeFpsText
-                                anchors.centerIn: parent
-                                text: homePreviewRole < 2
-                                      ? qsTr("%1 FPS").arg(openCvPreviewManager.topFps.toFixed(1))
-                                      : qsTr("%1 FPS").arg(openCvPreviewManager.bottomFps.toFixed(1))
-                                color: FluTheme.dark ? "#ffffff" : "#000000"
-                                font: FluTextStyle.Caption
-                            }
-                        }
-
-                        FluText {
-                            anchors.bottom: parent.bottom
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            anchors.bottomMargin: 4
-                            text: parent.showColor ? qsTr("彩色") : qsTr("黑白")
-                            color: FluTheme.dark ? "#aaaaaa" : "#cccccc"
-                            font: FluTextStyle.Caption
-                            visible: parent.previewOpened
-                        }
-
-                        FluText {
-                            anchors.centerIn: parent
-                            text: cameraDeviceManager.cameraNames.length === 0
-                                  ? qsTr("未检测到摄像头")
-                                  : qsTr("摄像头未打开")
-                            color: "#888888"
-                            font: FluTextStyle.Body
-                            visible: !parent.previewOpened
-                        }
-                    }
-                }
-
-                Item { Layout.fillHeight: true }
+        HomePageMotionControlPanel {
+            pageWidth: root.width
+            pageHeight: root.height
+            homePreviewRole: root.homePreviewRole
+            notify: root.showSuccess
+            onPreviewRoleChanged: {
+                root.homePreviewRole = role
             }
         }
     }
-    }
 
-    function genTestObject(){
-        var ages = ["100", "300", "500", "1000"];
-        function getRandomAge() {
-            var randomIndex = Math.floor(Math.random() * ages.length);
-            return ages[randomIndex];
-        }
-        var names = ["孙悟空", "猪八戒", "沙和尚", "唐僧","白骨夫人","金角大王","熊山君","黄风怪","银角大王"];
-        function getRandomName(){
-            var randomIndex = Math.floor(Math.random() * names.length);
-            return names[randomIndex];
-        }
-        var y_addr = ["复海大圣","混天大圣","移山大圣","通风大圣","驱神大圣","齐天大圣","平天大圣"]
-        function getRandomNickname(){
-            var randomIndex = Math.floor(Math.random() * y_addr.length);
-            return y_addr[randomIndex];
-        }
-        var x_addr = ["傲来国界花果山水帘洞","傲来国界坎源山脏水洞","大唐国界黑风山黑风洞","大唐国界黄风岭黄风洞","大唐国界骷髅山白骨洞","宝象国界碗子山波月洞","宝象国界平顶山莲花洞","宝象国界压龙山压龙洞","乌鸡国界号山枯松涧火云洞","乌鸡国界衡阳峪黑水河河神府"]
-        function getRandomAddresses(){
-            var randomIndex = Math.floor(Math.random() * x_addr.length);
-            return x_addr[randomIndex];
-        }
-        var avatars = ["qrc:/qt/qml/content/svg/avatar_1.svg", "qrc:/qt/qml/content/svg/avatar_2.svg", "qrc:/qt/qml/content/svg/avatar_3.svg", "qrc:/qt/qml/content/svg/avatar_4.svg","qrc:/qt/qml/content/svg/avatar_5.svg","qrc:/qt/qml/content/svg/avatar_6.svg","qrc:/qt/qml/content/svg/avatar_7.svg","qrc:/qt/qml/content/svg/avatar_8.svg","qrc:/qt/qml/content/svg/avatar_9.svg","qrc:/qt/qml/content/svg/avatar_10.svg","qrc:/qt/qml/content/svg/avatar_11.svg","qrc:/qt/qml/content/svg/avatar_12.svg"];
-        function getAvatar(){
-            var randomIndex = Math.floor(Math.random() * avatars.length);
-            return avatars[randomIndex];
-        }
-        return {
-            rowIndex: '',
-            selected: false,
-            avatar: "TSSOP-20",
-            name: getRandomName(),
-            age:getRandomAge(),
-            address: getRandomAddresses(),
-            nickname: getRandomNickname(),
-            longstring:"0",
-            mounted: false,
-            layer: "T",
-            quantity: getRandomAge(),
-            component_name: "TSSOP-20",
-            _minimumHeight:50,
-            _key:FluTools.uuid()
-        }
-    }
     function loadData(page,count){
         stopRunLoop()
-        const dataSource = []
-        const startIndex = (page - 1) * count + 1
-        for(var i=0;i<count;i++){
-            var obj = genTestObject()
-            obj.rowIndex = startIndex + i
-            dataSource.push(obj)
+
+        var csvFiles = csvFileReader.csvFilesInWorkingDirectory()
+        if (!csvFiles || csvFiles.length === 0) {
+            showWarning(qsTr("工作目录下未找到 CSV 文件"))
+            applyHomeTableData([])
+            return
         }
-        applyHomeTableData(dataSource)
-    }
-    function updateAllCheck() {
-        let checkedCount = 0
-        for (let i = 0; i < table_view.rows; i++) {
-            if (table_view.getRow(i).checkbox.options.checked) {
-                checkedCount += 1
+
+        var dataSource = []
+        var maxImportRows = 10000
+
+        for (var f = 0; f < csvFiles.length; f++) {
+            var csvData = csvFileReader.readCsvFile(csvFiles[f])
+            if (!csvData || csvData.length === undefined || csvData.length === 0) {
+                continue
+            }
+
+            for (var i = 0; i < csvData.length; i++) {
+                if (dataSource.length >= maxImportRows) {
+                    break
+                }
+                var row = csvData[i]
+                if (!row) {
+                    continue
+                }
+                dataSource.push({
+                    rowIndex: dataSource.length + 1,
+                    selected: row.SMD === "Yes",
+                    name: row.Designator || row.designator || "",
+                    avatar: row.Device || row.device || row.Footprint || row.footprint || "",
+                    age: row.Pins || "0",
+                    address: row["Mid X"] || row.midX || row.midx || "",
+                    nickname: row["Mid Y"] || row.midY || row.midy || "",
+                    longstring: row.Rotation || row.rotation || "0",
+                    mounted: false,
+                    layer: row.Layer || row.layer || "",
+                    quantity: row.Pins || "0",
+                    component_name: row.Device || row.device || row.Footprint || row.footprint || "",
+                    _minimumHeight: 50,
+                    _key: FluTools.uuid()
+                })
+            }
+
+            if (dataSource.length >= maxImportRows) {
+                break
             }
         }
-        if (checkedCount > 0 && checkedCount === table_view.rows) {
-            root.allCheckState = Qt.Checked
-        } else if (checkedCount > 0 && checkedCount < table_view.rows) {
-            root.allCheckState = Qt.PartiallyChecked
+
+        applyHomeTableData(dataSource)
+        gagination.pageCurrent = 1
+        mainWindow.homeTablePageCurrent = 1
+        root.allCheckState = Qt.Unchecked
+        updateMountedProgress()
+
+        if (dataSource.length >= maxImportRows) {
+            showWarning(qsTr("CSV 数据过多，仅加载前 ") + maxImportRows + qsTr(" 行"))
         } else {
-            root.allCheckState = Qt.Unchecked
+            showSuccess(qsTr("已从工作目录加载 CSV，共 ") + dataSource.length + qsTr(" 行"))
         }
+    }
+    function updateAllCheck() {
+        root.allCheckState = table_view.checkedRowsState()
     }
 }

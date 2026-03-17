@@ -15,6 +15,7 @@ public:
     explicit CsvFileReader(QObject *parent = nullptr);
 
     Q_INVOKABLE QVariantList readCsvFile(const QString &filePath);
+    Q_INVOKABLE QStringList csvFilesInWorkingDirectory() const;
     Q_INVOKABLE QString getLastError() const;
 
 private:
