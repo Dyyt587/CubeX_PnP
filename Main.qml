@@ -11,7 +11,7 @@ FluLauncher {
         FluTheme.darkMode = FluThemeType.Light
         FluTheme.enableAnimation = true
         FluRouter.routes = {
-            "/": "qrc:qt/qml/CubeX_PnP/QML/AppMainWindow.qml"
+            "/": "qrc:/qt/qml/CubeX_PnP/QML/AppMainWindow.qml"
         }
         FluRouter.navigate("/")
     }

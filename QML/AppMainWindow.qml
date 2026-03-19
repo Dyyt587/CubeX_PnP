@@ -493,21 +493,21 @@ FluWindow {
         FluPaneItem {
             title: qsTr("首页")
             icon: FluentIcons.Home
-            url: "qrc:qt/qml/CubeX_PnP/QML/page/HomePage.qml"
+            url: "qrc:/qt/qml/CubeX_PnP/QML/page/HomePage.qml"
             onTap: nav_view.push(url)
         }
 
         FluPaneItem {
             title: qsTr("设备连接")
             icon: FluentIcons.Connect
-            url: "qrc:qt/qml/CubeX_PnP/QML/page/DeviceConnectionPage.qml"
+            url: "qrc:/qt/qml/CubeX_PnP/QML/page/DeviceConnectionPage.qml"
             onTap: nav_view.push(url)
         }
 
         FluPaneItem {
             title: qsTr("设置")
             icon: FluentIcons.Settings
-            url: "qrc:qt/qml/CubeX_PnP/QML/page/SettingsPage.qml"
+            url: "qrc:/qt/qml/CubeX_PnP/QML/page/SettingsPage.qml"
             onTap: nav_view.push(url)
         }
     }
