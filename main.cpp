@@ -77,6 +77,9 @@ int main(int argc, char *argv[])
     OpenCvPreviewManager openCvPreviewManager;
     SMTWork smtWork;
     
+    // 连接 smtWork 和 serialPortManager
+    smtWork.setSerialPortManager(&serialPortManager);
+    
     engine.rootContext()->setContextProperty("serialPortManager", &serialPortManager);
     engine.rootContext()->setContextProperty("cameraDeviceManager", &cameraDeviceManager);
     engine.rootContext()->setContextProperty("csvFileReader", &csvFileReader);

@@ -509,13 +509,19 @@ Item {
                                                         ? ("image://opencvpreview/top_color?" + openCvPreviewManager.topFrameToken)
                                                         : ("image://opencvpreview/bottom_color?" + openCvPreviewManager.bottomFrameToken)
                     readonly property bool showColor: control.homePreviewRole === 1 || control.homePreviewRole === 3
+                    readonly property int currentFrameToken: control.homePreviewRole < 2
+                                                            ? openCvPreviewManager.topFrameToken
+                                                            : openCvPreviewManager.bottomFrameToken
+                    readonly property bool previewReady: previewOpened && currentFrameToken > 0
 
                     Image {
                         anchors.fill: parent
-                        visible: parent.previewOpened
+                        visible: parent.previewReady
                         fillMode: Image.PreserveAspectFit
                         cache: false
-                        source: parent.showColor ? parent.colorSource : parent.bwSource
+                        source: parent.previewReady
+                                ? (parent.showColor ? parent.colorSource : parent.bwSource)
+                                : ""
                     }
 
                     DraggableFocusOverlay {
@@ -552,17 +558,17 @@ Item {
                         text: parent.showColor ? qsTr("彩色") : qsTr("黑白")
                         color: FluTheme.dark ? "#aaaaaa" : "#cccccc"
                         font: FluTextStyle.Caption
-                        visible: parent.previewOpened
+                        visible: parent.previewReady
                     }
 
                     FluText {
                         anchors.centerIn: parent
                         text: cameraDeviceManager.cameraNames.length === 0
                               ? qsTr("未检测到摄像头")
-                              : qsTr("摄像头未打开")
+                              : (parent.previewOpened ? qsTr("等待首帧...") : qsTr("摄像头未打开"))
                         color: "#888888"
                         font: FluTextStyle.Body
-                        visible: !parent.previewOpened
+                        visible: !parent.previewReady
                     }
                 }
             }

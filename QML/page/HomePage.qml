@@ -1,4 +1,4 @@
-import QtQuick 2.15
+﻿import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import QtQuick.Window 2.15
@@ -6,6 +6,7 @@ import QtQuick.Dialogs
 import QtWebView
 import QtMultimedia
 import FluentUI 1.0
+import "../component"
 
 FluContentPage{
 
@@ -18,12 +19,21 @@ FluContentPage{
     property var topPreviewCameraDevice: null
     property var bottomPreviewCameraDevice: null
     property int homePreviewRole: 0
+    property var mw: mainWindow
     property bool runPaused: mainWindow.homeRunPaused
     property int runCurrentRow: mainWindow.homeRunCurrentRow
     property real mountedProgress: mainWindow.homeMountedProgress
     property int visibleRunCurrentRow: -1
     signal checkBoxChanged
     signal runCurrentItemChanged(int rowIndex, var item)
+
+    function warn(text) {
+        showWarning(text)
+    }
+
+    function ok(text) {
+        showSuccess(text)
+    }
 
     function refreshHomeTableFromState() {
         table_view.setHomeRowsFromRaw(mainWindow.homeTableData, mainWindow.homeTablePageCurrent)
@@ -65,11 +75,11 @@ FluContentPage{
 
     function sendSelectedRowsToController() {
         if (!serialPortManager || !serialPortManager.connected) {
-            showWarning(qsTr("串口未连接，无法发送任务列表"))
+            warn(qsTr("串口未连接，无法发送任务列表"))
             return false
         }
         if (!mainWindow.sendHomeSelectedRowsToController()) {
-            showWarning(qsTr("没有可发送的勾选项"))
+            warn(qsTr("没有可发送的勾选项"))
             return false
         }
         return true
@@ -84,7 +94,7 @@ FluContentPage{
 
     function syncCurrentRunHighlight() {
         visibleRunCurrentRow = table_view.resolveVisibleRowByRawIndex(mainWindow.homeTableData, runCurrentRow)
-        // 叠加层 Rectangle 会自动跟随 runCurrentRow，这里只负责滚动视图到当前行
+        // 叠加的 Rectangle 会自动跟随 runCurrentRow，这里只负责滚动视图到当前行
         if (visibleRunCurrentRow >= 0 && visibleRunCurrentRow < table_view.rows) {
             if (table_view.view && typeof table_view.view.positionViewAtRow === "function") {
                 table_view.view.positionViewAtRow(visibleRunCurrentRow, Qt.AlignVCenter)
@@ -100,7 +110,7 @@ FluContentPage{
         runCurrentRow = mainWindow.homeRunCurrentRow
         updateMountedProgress()
         if (mainWindow.homeRunCurrentRow < 0) {
-            showSuccess(qsTr("流程执行完成"))
+            ok(qsTr("流程执行完成"))
             return
         }
         var currentItem = getCurrentRunItem()
@@ -111,13 +121,13 @@ FluContentPage{
 
     function startRunLoop() {
         if (mainWindow.homeTableData.length <= 0) {
-            showWarning(qsTr("表格为空，无法开始"))
+            warn(qsTr("表格为空，无法开始"))
             return
         }
 
         var runOrder = table_view.buildRunOrderFromVisibleRows(mainWindow.homeTableData)
         if (!mainWindow.startHomeRun(runOrder)) {
-            showWarning(qsTr("没有勾选项，无法开始"))
+            warn(qsTr("没有勾选项，无法开始"))
             return
         }
 
@@ -168,28 +178,28 @@ FluContentPage{
             persistHomeTableData()
             updateMountedProgress()
         } else {
-            showWarning(qsTr("Focus not acquired: Please click any item in the form as the target for insertion!"))
+            warn(qsTr("Focus not acquired: Please click any item in the form as the target for insertion!"))
         }
     }
 
     function toggleRunOrPause() {
         if (runPaused) {
             startRunLoop()
-            showSuccess(qsTr("开始执行"))
+            ok(qsTr("开始执行"))
         } else {
             pauseRunLoop()
-            showSuccess(qsTr("已暂停"))
+            ok(qsTr("已暂停"))
         }
     }
 
     function stepRunOnce() {
         if (runCurrentRow < 0) {
             if (mainWindow.homeTableData.length <= 0) {
-                showWarning(qsTr("表格为空，无法单步执行"))
+                warn(qsTr("表格为空，无法单步执行"))
                 return
             }
             if (!mainWindow.stepHomeRun(table_view.buildRunOrderFromVisibleRows(mainWindow.homeTableData))) {
-                showWarning(qsTr("没有勾选项，无法单步执行"))
+                warn(qsTr("没有勾选项，无法单步执行"))
                 return
             }
             runCurrentRow = mainWindow.homeRunCurrentRow
@@ -204,7 +214,7 @@ FluContentPage{
             runCurrentRow = mainWindow.homeRunCurrentRow
             syncCurrentRunHighlight()
         }
-        showSuccess(qsTr("单步执行"))
+        ok(qsTr("单步执行"))
     }
 
     function applyFilters() {
@@ -267,7 +277,7 @@ FluContentPage{
     function importFile(filePath) {
         var fileUrl = filePath ? filePath.toString() : ""
         var fileName = fileUrl.split("/").pop()
-        // 导入新数据前先中止运行态，避免旧索引/高亮引用已被替换的模型
+        // 导入新数据前先中止运行态，避免旧索引高亮引用已被替换的模型。
         stopRunLoop()
 
         if (fileUrl === "" || !fileUrl.toLowerCase().endsWith(".csv")) {
@@ -287,7 +297,7 @@ FluContentPage{
             return
         }
         
-        // 将CSV数据转换为表格格式
+        // 将 CSV 数据转换为表格格式。
         // 单行会创建多个 customItem，对超大文件需限制行数以避免瞬时内存暴涨。
         var maxImportRows = 10000
         var importCount = Math.min(csvData.length, maxImportRows)
@@ -326,10 +336,10 @@ FluContentPage{
 
        // updateMountedProgress()
         if (csvData.length > maxImportRows) {
-            showWarning(qsTr("文件行数过大，仅加载前 ") + maxImportRows + qsTr(" 行"))
+                warn(qsTr("文件行数过大，仅加载 ") + maxImportRows + qsTr(" 行"))
         }
         
-        showSuccess(qsTr("文件已导入: ") + fileName + qsTr(" (") + importCount + qsTr(" 行)"))
+            ok(qsTr("文件已导入 ") + fileName + qsTr(" (") + importCount + qsTr(" 行)"))
     }
 
     function resolveCameraDeviceFor(cameraName, cameraIndex) {
@@ -556,7 +566,7 @@ FluContentPage{
                     onRunToggleClicked: root.toggleRunOrPause()
                     onStopClicked: {
                         root.stopRunLoop()
-                        showSuccess(qsTr("已中止"))
+                        ok(qsTr("已中止"))
                     }
                     onStepClicked: root.stepRunOnce()
                 }
@@ -609,7 +619,7 @@ FluContentPage{
             pageHeight: root.height
             homePreviewRole: root.homePreviewRole
             notify: root.showSuccess
-            onPreviewRoleChanged: {
+            onPreviewRoleChanged: function(role) {
                 root.homePreviewRole = role
             }
         }
@@ -620,7 +630,7 @@ FluContentPage{
 
         var csvFiles = csvFileReader.csvFilesInWorkingDirectory()
         if (!csvFiles || csvFiles.length === 0) {
-            showWarning(qsTr("工作目录下未找到 CSV 文件"))
+            warn(qsTr("工作目录下未找到 CSV 文件"))
             applyHomeTableData([])
             return
         }
@@ -672,12 +682,14 @@ FluContentPage{
         updateMountedProgress()
 
         if (dataSource.length >= maxImportRows) {
-            showWarning(qsTr("CSV 数据过多，仅加载前 ") + maxImportRows + qsTr(" 行"))
+            warn(qsTr("CSV 数据过多，仅加载 ") + maxImportRows + qsTr(" 行"))
         } else {
-            showSuccess(qsTr("已从工作目录加载 CSV，共 ") + dataSource.length + qsTr(" 行"))
+            ok(qsTr("已从工作目录加载 CSV，共 ") + dataSource.length + qsTr(" 行"))
         }
     }
     function updateAllCheck() {
         root.allCheckState = table_view.checkedRowsState()
     }
 }
+
+

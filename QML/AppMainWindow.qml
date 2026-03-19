@@ -45,6 +45,20 @@ FluWindow {
     // 共享的摄像头资源
     readonly property MediaDevices sharedMediaDevices: MediaDevices { id: sharedMediaDevices }
 
+    function appendSerialConsole(message) {
+        if (message === undefined || message === null || message === "") {
+            return
+        }
+        var now = new Date()
+        var hh = String(now.getHours()).padStart(2, "0")
+        var mm = String(now.getMinutes()).padStart(2, "0")
+        var ss = String(now.getSeconds()).padStart(2, "0")
+        var line = "[" + hh + ":" + mm + ":" + ss + "] " + message
+        serialControllerConsoleText = serialControllerConsoleText.length > 0
+                ? serialControllerConsoleText + "\n" + line
+                : line
+    }
+
     function normalizeHomeRow(rawRow, fallbackRowIndex) {
         var row = rawRow || {}
         var selected = row.selected
@@ -245,14 +259,11 @@ FluWindow {
             return false
         }
 
-        if (!serialPortManager.connected) {
-            console.log(label + " [跳过: 串口未连接]")
-            return false
-        }
-
-        var ok = serialPortManager.sendWithConsole(cmd)
-        console.log(label + (ok ? " [已发送]" : " [发送失败]"))
-        return ok
+        smtWork.clearWorkQueue()
+        smtWork.addWorkItem(cmd, "ok")
+        smtWork.start()
+        console.log(label + " [已加入SMTWork并等待ok]")
+        return true
     }
 
     function startHomeRun(rawIndexList) {
@@ -270,8 +281,11 @@ FluWindow {
             if (currentPos >= 0) {
                 homeRunOrderPos = currentPos
                 homeRunPaused = false
-                dispatchHomeWorkRow(homeRunCurrentRow)
-                smtWork.start()
+                if (!dispatchHomeWorkRow(homeRunCurrentRow)) {
+                    homeRunPaused = true
+                    smtWork.pause()
+                    return false
+                }
                 return true
             }
         }
@@ -279,8 +293,11 @@ FluWindow {
         homeRunPaused = false
         homeRunOrderPos = 0
         homeRunCurrentRow = homeRunOrder[homeRunOrderPos]
-        dispatchHomeWorkRow(homeRunCurrentRow)
-        smtWork.start()
+        if (!dispatchHomeWorkRow(homeRunCurrentRow)) {
+            homeRunPaused = true
+            smtWork.pause()
+            return false
+        }
         return true
     }
 
@@ -327,8 +344,7 @@ FluWindow {
             homeRunPaused = true
             homeRunOrderPos = 0
             homeRunCurrentRow = homeRunOrder[homeRunOrderPos]
-            dispatchHomeWorkRow(homeRunCurrentRow)
-            return true
+            return dispatchHomeWorkRow(homeRunCurrentRow)
         }
         advanceHomeRun()
         return true
@@ -360,7 +376,10 @@ FluWindow {
 
         homeRunOrderPos = nextPos
         homeRunCurrentRow = homeRunOrder[homeRunOrderPos]
-        dispatchHomeWorkRow(homeRunCurrentRow)
+        if (!dispatchHomeWorkRow(homeRunCurrentRow)) {
+            homeRunPaused = true
+            smtWork.pause()
+        }
     }
     
     function getTopCameraDevice() {
@@ -400,9 +419,20 @@ FluWindow {
     }
 
     Connections {
+        target: serialPortManager
+        function onConsoleMessage(message) {
+            mainWindow.appendSerialConsole(message)
+        }
+    }
+
+    Connections {
         target: smtWork
-        function onTick() {
+        function onWorkItemCompleted(index) {
             mainWindow.advanceHomeRun()
+        }
+        function onQueuePaused(itemIndex, command) {
+            homeRunPaused = true
+            console.warn("[WORK] 队列暂停，等待处理 item=" + itemIndex + " command=" + command)
         }
     }
 

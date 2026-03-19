@@ -245,12 +245,20 @@ bool SerialPortManager::isVirtualPort(const QString &portName) const
 
 void SerialPortManager::emitVirtualEcho(const QString &text)
 {
+    // 虚拟设备返回 "ok" 来模拟真实设备的行为
+    // 而不是简单的回显命令本身
+    QString response = "ok\n";
+    
     {
         QMutexLocker locker(m_bufferMutex);
-        m_receivedBuffer.append(text);
+        m_receivedBuffer.append(response);
     }
-    emit dataReceived(text);
-    emit consoleMessage(tr("[接收] ") + text);
+    
+    // 延迟发送响应，模拟真实设备的处理时间
+    QTimer::singleShot(100, this, [this, response]() {
+        emit dataReceived(response);
+        emit consoleMessage(tr("[接收] ") + response);
+    });
 }
 
 #include "SerialPortManager.moc"

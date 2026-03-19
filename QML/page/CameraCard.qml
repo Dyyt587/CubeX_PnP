@@ -46,12 +46,20 @@ Rectangle {
     property real templateMatchW: 0
     property real templateMatchH: 0
     property bool continuousMatchingEnabled: false
+    readonly property int frameToken: cameraRole === 0
+                                     ? openCvPreviewManager.topFrameToken
+                                     : openCvPreviewManager.bottomFrameToken
+    readonly property int templateToken: cameraRole === 0
+                                        ? openCvPreviewManager.topTemplateToken
+                                        : openCvPreviewManager.bottomTemplateToken
+    readonly property bool frameReady: cameraOpened && frameToken > 0
+    readonly property bool templateReady: templateToken > 0
     property string templatePreviewSource: cameraRole === 0
-                                           ? "image://opencvpreview/top_template?" + openCvPreviewManager.topTemplateToken
-                                           : "image://opencvpreview/bottom_template?" + openCvPreviewManager.bottomTemplateToken
+                                           ? "image://opencvpreview/top_template?" + templateToken
+                                           : "image://opencvpreview/bottom_template?" + templateToken
     property string matchPreviewSource: cameraRole === 0
-                                        ? "image://opencvpreview/top_color?" + openCvPreviewManager.topFrameToken
-                                        : "image://opencvpreview/bottom_color?" + openCvPreviewManager.bottomFrameToken
+                                        ? "image://opencvpreview/top_color?" + frameToken
+                                        : "image://opencvpreview/bottom_color?" + frameToken
     property real templatePreviewSide: 320
 
     property string spare2Label: qsTr("备用2")
@@ -915,7 +923,7 @@ Rectangle {
                             Image {
                                 anchors.fill: parent
                                 anchors.margins: 2
-                                source: templatePreviewSource
+                                source: cameraCard.templateReady ? templatePreviewSource : ""
                                 fillMode: Image.Stretch
                                 cache: false
                             }
@@ -968,7 +976,7 @@ Rectangle {
                             id: matchPreviewImage
                             anchors.fill: parent
                             anchors.margins: 4
-                            source: matchPreviewSource
+                            source: cameraCard.frameReady ? matchPreviewSource : ""
                             fillMode: Image.PreserveAspectFit
                             cache: false
 
