@@ -27,6 +27,7 @@ FluWindow {
     property string homeNameKeyword: ""
     property string homeLayerKeyword: ""
     property bool homeRunPaused: true
+    property bool homeRunStepMode: false
     property int homeRunCurrentRow: -1
     property int homeRunLastMountedRow: -1
     property real homeMountedProgress: 0
@@ -276,6 +277,8 @@ FluWindow {
             return false
         }
 
+        homeRunStepMode = false
+
         if (homeRunCurrentRow >= 0 && homeRunCurrentRow < homeTableData.length && isHomeRowSelected(homeRunCurrentRow)) {
             var currentPos = indexOfInHomeRunOrder(homeRunCurrentRow)
             if (currentPos >= 0) {
@@ -326,6 +329,7 @@ FluWindow {
 
     function stopHomeRun(clearMounted) {
         homeRunPaused = true
+        homeRunStepMode = false
         homeRunCurrentRow = -1
         homeRunOrderPos = -1
         if (clearMounted === true) {
@@ -335,22 +339,35 @@ FluWindow {
     }
 
     function stepHomeRun(rawIndexList) {
+        if (smtWork.waitingForResponse) {
+            return false
+        }
+
         ensureHomeRunOrder(rawIndexList)
         if (!homeRunOrder || homeRunOrder.length <= 0) {
             return false
         }
 
+        homeRunStepMode = true
+        homeRunPaused = true
+
         if (homeRunCurrentRow < 0) {
-            homeRunPaused = true
             homeRunOrderPos = 0
             homeRunCurrentRow = homeRunOrder[homeRunOrderPos]
             return dispatchHomeWorkRow(homeRunCurrentRow)
         }
-        advanceHomeRun()
-        return true
+
+        if (indexOfInHomeRunOrder(homeRunCurrentRow) < 0) {
+            homeRunOrderPos = 0
+            homeRunCurrentRow = homeRunOrder[homeRunOrderPos]
+        }
+
+        return dispatchHomeWorkRow(homeRunCurrentRow)
     }
 
-    function advanceHomeRun() {
+    function advanceHomeRun(dispatchNext) {
+        var shouldDispatchNext = dispatchNext !== false
+
         if (homeTableData.length <= 0 || homeRunCurrentRow < 0 || homeRunCurrentRow >= homeTableData.length) {
             return
         }
@@ -376,6 +393,12 @@ FluWindow {
 
         homeRunOrderPos = nextPos
         homeRunCurrentRow = homeRunOrder[homeRunOrderPos]
+
+        if (!shouldDispatchNext) {
+            homeRunPaused = true
+            return
+        }
+
         if (!dispatchHomeWorkRow(homeRunCurrentRow)) {
             homeRunPaused = true
             smtWork.pause()
@@ -428,7 +451,11 @@ FluWindow {
     Connections {
         target: smtWork
         function onWorkItemCompleted(index) {
-            mainWindow.advanceHomeRun()
+            if (mainWindow.homeRunStepMode) {
+                mainWindow.advanceHomeRun(false)
+            } else {
+                mainWindow.advanceHomeRun(true)
+            }
         }
         function onQueuePaused(itemIndex, command) {
             homeRunPaused = true
