@@ -8,8 +8,34 @@ set(CMAKE_AUTORCC ON)
 # 设置 OpenCV 路径
 set(OpenCV_DIR "C:/Users/lzj/Github/OpenCV_MingW/OpenCV4.11_mingw13.1.0")
 find_package(FluentUI)
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Network Multimedia Concurrent SerialPort)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick Network Multimedia Concurrent SerialPort Widgets)
 find_package(OpenCV REQUIRED)
+
+file(GLOB GERBER_RENDERER_CORE
+    ${CMAKE_CURRENT_SOURCE_DIR}/gerber_renderer/src/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/gerber_renderer/src/*.h
+)
+file(GLOB GERBER_RENDERER_ENGINE
+    ${CMAKE_CURRENT_SOURCE_DIR}/gerber_renderer/src/engine/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/gerber_renderer/src/engine/*.h
+)
+file(GLOB_RECURSE GERBER_RENDERER_GERBER
+    ${CMAKE_CURRENT_SOURCE_DIR}/gerber_renderer/src/gerber/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/gerber_renderer/src/gerber/*.h
+)
+
+add_library(gerber_renderer STATIC
+    ${GERBER_RENDERER_CORE}
+    ${GERBER_RENDERER_ENGINE}
+    ${GERBER_RENDERER_GERBER}
+)
+target_include_directories(gerber_renderer PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/gerber_renderer/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/gerber_renderer/src/gerber
+    ${CMAKE_CURRENT_SOURCE_DIR}/gerber_renderer/src/engine
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/thirdparty
+)
+target_link_libraries(gerber_renderer PUBLIC Qt6::Core Qt6::Gui Qt6::Widgets)
 
 qt_standard_project_setup(REQUIRES 6.8)
 
@@ -17,6 +43,8 @@ qt_add_executable(appCubeX_PnP
     main.cpp image.qrc
     src/singleton.h src/stdafx.h
     src/component/CircularReveal.cpp src/component/CircularReveal.h
+    src/helper/GerberPreviewRenderer.cpp src/helper/GerberPreviewRenderer.h
+    src/helper/GerberPreviewManager.cpp src/helper/GerberPreviewManager.h
 )
 qt_add_resources(appCubeX_PnP "configuration"
     PREFIX "/"
@@ -46,7 +74,7 @@ qt_add_qml_module(appCubeX_PnP
         QML/page/DeviceConnectionPage.qml
         QML/page/HomePage.qml
         QML/page/SettingsPage.qml
-        SOURCES src/helper/CameraDeviceManager.cpp src/helper/CameraDeviceManager.h src/helper/CameraScanManager.cpp src/helper/CameraScanManager.h src/helper/CsvFileReader.cpp src/helper/CsvFileReader.h src/helper/InitializrHelper.cpp src/helper/InitializrHelper.h src/helper/Log.cpp src/helper/Log.h src/helper/OpenCvPreviewManager.cpp src/helper/OpenCvPreviewManager.h src/helper/SerialPortManager.cpp src/helper/SerialPortManager.h src/helper/SettingsHelper.cpp src/helper/SettingsHelper.h src/helper/SMTWork.cpp src/helper/SMTWork.h src/helper/TranslateHelper.cpp src/helper/TranslateHelper.h
+        SOURCES src/helper/CameraDeviceManager.cpp src/helper/CameraDeviceManager.h src/helper/CameraScanManager.cpp src/helper/CameraScanManager.h src/helper/CsvFileReader.cpp src/helper/CsvFileReader.h src/helper/GerberPreviewManager.cpp src/helper/GerberPreviewManager.h src/helper/GerberPreviewRenderer.cpp src/helper/GerberPreviewRenderer.h src/helper/InitializrHelper.cpp src/helper/InitializrHelper.h src/helper/Log.cpp src/helper/Log.h src/helper/OpenCvPreviewManager.cpp src/helper/OpenCvPreviewManager.h src/helper/SerialPortManager.cpp src/helper/SerialPortManager.h src/helper/SettingsHelper.cpp src/helper/SettingsHelper.h src/helper/SMTWork.cpp src/helper/SMTWork.h src/helper/TranslateHelper.cpp src/helper/TranslateHelper.h
         SOURCES Version.h
         RESOURCES image.qrc
     )
@@ -64,6 +92,7 @@ set_target_properties(appCubeX_PnP PROPERTIES
 
 target_link_libraries(appCubeX_PnP
     PRIVATE ${OpenCV_LIBS}
+    PRIVATE gerber_renderer
     PRIVATE Qt6::Quick
         Qt6::Core
         Qt6::Gui

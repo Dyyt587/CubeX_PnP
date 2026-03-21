@@ -19,6 +19,7 @@
 #include <QQmlContext>
 #include <QQuickWindow>
 #include <QSslConfiguration>
+#include <QStandardPaths>
 #include <QUrl>
 
 
@@ -27,6 +28,8 @@
 #include "src/helper/CameraDeviceManager.h"
 #include "src/helper/SerialPortManager.h"
 #include "src/helper/CsvFileReader.h"
+#include "src/helper/GerberPreviewManager.h"
+#include "src/helper/GerberPreviewRenderer.h"
 #include "src/helper/OpenCvPreviewManager.h"
 #include "src/helper/SMTWork.h"
 
@@ -53,6 +56,27 @@ static QString resolveInteractiveBomUrl()
     return QStringLiteral("about:blank");
 }
 
+static QString resolveWorkspaceRoot()
+{
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QString currentDir = QDir::currentPath();
+    const QStringList candidates = {
+        currentDir,
+        appDir,
+        QDir(appDir).filePath(".."),
+        QDir(appDir).filePath("../.."),
+        QDir(appDir).filePath("../../..")
+    };
+
+    for (const QString &candidate : candidates) {
+        const QString root = QDir::cleanPath(candidate);
+        if (QFileInfo::exists(QDir(root).filePath("CMakeLists.txt"))) {
+            return root;
+        }
+    }
+    return currentDir;
+}
+
 int main(int argc, char *argv[])
 {
     const char *uri = "CubeX_PnP";
@@ -74,8 +98,13 @@ int main(int argc, char *argv[])
     SerialPortManager serialPortManager;
     CameraDeviceManager cameraDeviceManager;
     CsvFileReader csvFileReader;
+    GerberPreviewManager gerberPreviewManager;
     OpenCvPreviewManager openCvPreviewManager;
     SMTWork smtWork;
+
+    if (!gerberPreviewManager.initFromWorkspace(resolveWorkspaceRoot())) {
+        qWarning() << "Gerber preview init failed:" << gerberPreviewManager.lastError();
+    }
     
     // 连接 smtWork 和 serialPortManager
     smtWork.setSerialPortManager(&serialPortManager);
@@ -83,6 +112,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("serialPortManager", &serialPortManager);
     engine.rootContext()->setContextProperty("cameraDeviceManager", &cameraDeviceManager);
     engine.rootContext()->setContextProperty("csvFileReader", &csvFileReader);
+    engine.rootContext()->setContextProperty("gerberPreviewManager", &gerberPreviewManager);
     engine.rootContext()->setContextProperty("openCvPreviewManager", &openCvPreviewManager);
     engine.rootContext()->setContextProperty("smtWork", &smtWork);
     engine.rootContext()->setContextProperty("interactiveBomUrl", resolveInteractiveBomUrl());

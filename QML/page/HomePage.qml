@@ -24,8 +24,8 @@ FluContentPage{
     property int runCurrentRow: mainWindow.homeRunCurrentRow
     property real mountedProgress: mainWindow.homeMountedProgress
     property int visibleRunCurrentRow: -1
-    property real placementObjectWidthMm: 15.748
-    property real placementObjectHeightMm: 25.527
+    property real placementObjectWidthMm: gerberPreviewManager && gerberPreviewManager.boardWidthMm > 0 ? gerberPreviewManager.boardWidthMm : 15.748
+    property real placementObjectHeightMm: gerberPreviewManager && gerberPreviewManager.boardHeightMm > 0 ? gerberPreviewManager.boardHeightMm : 25.527
     property var placementPreviewPoints: []
     property real placementZoom: 1.0
     property real placementPanX: 0
@@ -33,6 +33,10 @@ FluContentPage{
     property bool placementFillView: false
     property real placementMinZoom: 0.2
     property real placementMaxZoom: 8.0
+    // true: 左下原点且 y 向上为正；false: 左下原点且 y 向下为正（历史负Y数据）。
+    property bool placementBottomLeftYPositive: true
+    property real placementOffsetXMm: 0
+    property real placementOffsetYMm: 0
     signal checkBoxChanged
     signal runCurrentItemChanged(int rowIndex, var item)
 
@@ -79,6 +83,28 @@ FluContentPage{
         return Number(match[0])
     }
 
+    // FluSpinBox 以整数工作，这里用 0.01mm 精度做换算。
+    function offsetMmToSpin(valueMm) {
+        return Math.round(valueMm * 100)
+    }
+
+    function spinToOffsetMm(spinValue) {
+        return spinValue / 100.0
+    }
+
+    function offsetSpinValueFromText(textValue) {
+        var cleaned = String(textValue).replace(/[^0-9+\-.]/g, "")
+        var parsed = Number(cleaned)
+        if (!isFinite(parsed)) {
+            return 0
+        }
+        return offsetMmToSpin(parsed)
+    }
+
+    function offsetSpinTextFromValue(spinValue) {
+        return spinToOffsetMm(spinValue).toFixed(2)
+    }
+
     function placementRowsForPreview() {
         var rows = mainWindow.homeTableData || []
         if (rows.length > 0) {
@@ -97,6 +123,7 @@ FluContentPage{
         var statsXMax = Number.NEGATIVE_INFINITY
         var statsYMin = Number.POSITIVE_INFINITY
         var statsYMax = Number.NEGATIVE_INFINITY
+        var hasBoardSize = placementObjectWidthMm > 0.000001 && placementObjectHeightMm > 0.000001
 
         for (var s = 0; s < rows.length; s++) {
             var statRow = rows[s]
@@ -115,18 +142,27 @@ FluContentPage{
         }
 
         var tolerance = 0.15
-        var mode = "fitRange"
+        var mode = hasBoardSize ? (placementBottomLeftYPositive ? "bottomLeftUpPositive" : "bottomLeftUpNegative") : "fitRange"
         if (isFinite(statsXMin) && isFinite(statsXMax) && isFinite(statsYMin) && isFinite(statsYMax)) {
             var xInObjectRange = statsXMin >= -placementObjectWidthMm * tolerance && statsXMax <= placementObjectWidthMm * (1 + tolerance)
             var yInNegativeRange = statsYMin >= -placementObjectHeightMm * (1 + tolerance) && statsYMax <= placementObjectHeightMm * tolerance
+            var yInPositiveRange = statsYMin >= -placementObjectHeightMm * tolerance && statsYMax <= placementObjectHeightMm * (1 + tolerance)
             var xInCenterRange = statsXMin >= -placementObjectWidthMm * (0.5 + tolerance) && statsXMax <= placementObjectWidthMm * (0.5 + tolerance)
             var yInCenterRange = statsYMin >= -placementObjectHeightMm * (0.5 + tolerance) && statsYMax <= placementObjectHeightMm * (0.5 + tolerance)
 
-            // 右上为正，且 y 常见为 [-H,0]：原点在图像左上角。
-            if (xInObjectRange && yInNegativeRange) {
-                mode = "topLeftUpPositive"
-            } else if (xInCenterRange && yInCenterRange) {
-                mode = "centerUpPositive"
+            // 有板尺寸时优先按左下原点，并由开关决定 y 正方向。
+            if (hasBoardSize) {
+                if (xInObjectRange) {
+                    mode = placementBottomLeftYPositive ? "bottomLeftUpPositive" : "bottomLeftUpNegative"
+                } else if (xInCenterRange && yInCenterRange) {
+                    mode = "centerUpPositive"
+                }
+            } else {
+                if (xInObjectRange && yInNegativeRange) {
+                    mode = "bottomLeftUpNegative"
+                } else if (xInCenterRange && yInCenterRange) {
+                    mode = "centerUpPositive"
+                }
             }
         }
 
@@ -150,22 +186,29 @@ FluContentPage{
                 continue
             }
 
+            var adjustedXmm = xMm + placementOffsetXMm
+            var adjustedYmm = yMm + placementOffsetYMm
+
             var normalizedX
             var normalizedY
-            if (mode === "topLeftUpPositive") {
-                // 左上原点，x 向右正，y 向上正（屏幕坐标需翻转）。
-                normalizedX = xMm / placementObjectWidthMm
-                normalizedY = -yMm / placementObjectHeightMm
+            if (mode === "bottomLeftUpPositive") {
+                // 左下原点，x 向右正，y 向上正。
+                normalizedX = adjustedXmm / placementObjectWidthMm
+                normalizedY = 1 - (adjustedYmm / placementObjectHeightMm)
+            } else if (mode === "bottomLeftUpNegative") {
+                // 兼容历史负Y数据：y in [-H,0]，仍视作左下原点语义。
+                normalizedX = adjustedXmm / placementObjectWidthMm
+                normalizedY = -adjustedYmm / placementObjectHeightMm
             } else if (mode === "centerUpPositive") {
                 // 中心原点，x 向右正，y 向上正。
-                normalizedX = (xMm + placementObjectWidthMm / 2) / placementObjectWidthMm
-                normalizedY = (-yMm + placementObjectHeightMm / 2) / placementObjectHeightMm
+                normalizedX = (adjustedXmm + placementObjectWidthMm / 2) / placementObjectWidthMm
+                normalizedY = (-adjustedYmm + placementObjectHeightMm / 2) / placementObjectHeightMm
             } else {
                 // 坐标范围无法判定时，按数据范围自适应，避免点被大量压到角落。
                 var xDen = Math.max(0.000001, statsXMax - statsXMin)
                 var yDen = Math.max(0.000001, statsYMax - statsYMin)
-                normalizedX = (xMm - statsXMin) / xDen
-                normalizedY = (statsYMax - yMm) / yDen
+                normalizedX = (adjustedXmm - statsXMin) / xDen
+                normalizedY = (statsYMax - adjustedYmm) / yDen
             }
 
             normalizedX = Math.max(0, Math.min(1, normalizedX))
@@ -390,6 +433,9 @@ FluContentPage{
 
     onNameKeywordChanged: applyFilters()
     onLayerKeywordChanged: applyFilters()
+    onPlacementBottomLeftYPositiveChanged: rebuildPlacementPreviewPoints()
+    onPlacementOffsetXMmChanged: rebuildPlacementPreviewPoints()
+    onPlacementOffsetYMmChanged: rebuildPlacementPreviewPoints()
 
     Component.onCompleted: {
         nameKeyword = mainWindow.homeNameKeyword
@@ -432,6 +478,13 @@ FluContentPage{
         target: table_view
         function onRowsChanged() {
             // 兼容延迟加载/后台加载后仅更新表格模型但尚未同步到 mainWindow 的场景。
+            rebuildPlacementPreviewPoints()
+        }
+    }
+
+    Connections {
+        target: gerberPreviewManager
+        function onBoardSizeChanged() {
             rebuildPlacementPreviewPoints()
         }
     }
@@ -505,6 +558,34 @@ FluContentPage{
         }
         
             ok(qsTr("文件已导入 ") + fileName + qsTr(" (") + importCount + qsTr(" 行)"))
+    }
+
+    function importGerberFile(filePath) {
+        var fileUrl = filePath ? filePath.toString() : ""
+        if (fileUrl === "") {
+            var invalidMsg = qsTr("解析失败：请选择有效的 Gerber 文件")
+            warn(invalidMsg)
+            return
+        }
+        if (!gerberPreviewManager || !gerberPreviewManager.importGerber) {
+            var mgrMsg = qsTr("解析失败：Gerber 预览管理器不可用")
+            warn(mgrMsg)
+            return
+        }
+        if (!gerberPreviewManager.importGerber(fileUrl)) {
+            var err = gerberPreviewManager.lastError
+            var failMsg = (err && err !== "") ? (qsTr("解析失败：") + err) : qsTr("解析失败：Gerber 导入失败")
+            warn(failMsg)
+            return
+        }
+
+        var widthText = Number(gerberPreviewManager.boardWidthMm).toFixed(3)
+        var heightText = Number(gerberPreviewManager.boardHeightMm).toFixed(3)
+        var okMsg = qsTr("解析成功：板子尺寸约为 ") + widthText + qsTr(" mm x ") + heightText + qsTr(" mm")
+        ok(okMsg)
+        rebuildPlacementPreviewPoints()
+        resetPlacementView(false)
+        ok(qsTr("Gerber 已导入并更新预览"))
     }
 
     function resolveCameraDeviceFor(cameraName, cameraIndex) {
@@ -735,7 +816,7 @@ FluContentPage{
                                 height: placementViewport.baseImageHeight * root.placementZoom
                                 x: (placementViewport.width - width) / 2 + root.placementPanX
                                 y: (placementViewport.height - height) / 2 + root.placementPanY
-                                source: "qrc:/image/png/004914.png"
+                                source: gerberPreviewManager && gerberPreviewManager.previewUrl && gerberPreviewManager.previewUrl !== "" ? gerberPreviewManager.previewUrl : "qrc:/image/png/004914.png"
                                 fillMode: Image.PreserveAspectFit
                                 smooth: true
                                 mipmap: true
@@ -804,7 +885,7 @@ FluContentPage{
                                 anchors.right: parent.right
                                 anchors.bottom: parent.bottom
                                 anchors.rightMargin: 10
-                                anchors.bottomMargin: 10
+                                anchors.bottomMargin: placementAdjustPanel.height + 16
 
                                 FluIconButton {
                                     iconSource: FluentIcons.FitPage
@@ -823,6 +904,87 @@ FluContentPage{
                                         root.placementPanX = 0
                                         root.placementPanY = 0
                                         root.clampPlacementPan()
+                                    }
+                                }
+                            }
+
+                            FluFrame {
+                                id: placementAdjustPanel
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                anchors.rightMargin: 10
+                                anchors.bottomMargin: 10
+                                padding: 8
+                                // 固定为原面板(约260)的1.5倍，并限制不超过视口宽度，避免布局循环。
+                                width: 260
+
+                                Column {
+                                    id: adjustPanelContent
+                                    spacing: 6
+                                    width: parent.width - placementAdjustPanel.padding * 2
+
+                                    FluToggleSwitch {
+                                        text: qsTr("Y向上为正")
+                                        checked: root.placementBottomLeftYPositive
+                                        onClicked: root.placementBottomLeftYPositive = checked
+                                    }
+
+                                    Row {
+                                        spacing: 6
+                                        width: parent.width
+                                        FluText {
+                                            text: qsTr("X偏移(mm)")
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+                                        FluSpinBox {
+                                            width: 128
+                                            editable: true
+                                            from: -10000
+                                            to: 10000
+                                            stepSize: 1
+                                            value: root.offsetMmToSpin(root.placementOffsetXMm)
+                                            textFromValue: function(value, locale) {
+                                                return root.offsetSpinTextFromValue(value)
+                                            }
+                                            valueFromText: function(text, locale) {
+                                                return root.offsetSpinValueFromText(text)
+                                            }
+                                            onValueModified: {
+                                                root.placementOffsetXMm = root.spinToOffsetMm(value)
+                                            }
+                                            onValueChanged: {
+                                                root.placementOffsetXMm = root.spinToOffsetMm(value)
+                                            }
+                                        }
+                                    }
+
+                                    Row {
+                                        spacing: 6
+                                        width: parent.width
+                                        FluText {
+                                            text: qsTr("Y偏移(mm)")
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+                                        FluSpinBox {
+                                            width: 128
+                                            editable: true
+                                            from: -10000
+                                            to: 10000
+                                            stepSize: 1
+                                            value: root.offsetMmToSpin(root.placementOffsetYMm)
+                                            textFromValue: function(value, locale) {
+                                                return root.offsetSpinTextFromValue(value)
+                                            }
+                                            valueFromText: function(text, locale) {
+                                                return root.offsetSpinValueFromText(text)
+                                            }
+                                            onValueModified: {
+                                                root.placementOffsetYMm = root.spinToOffsetMm(value)
+                                            }
+                                            onValueChanged: {
+                                                root.placementOffsetYMm = root.spinToOffsetMm(value)
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -850,6 +1012,7 @@ FluContentPage{
                     runPaused: root.runPaused
                     mountedProgress: root.mountedProgress
                     onImportClicked: dialogs.openImportDialog()
+                    onImportGerberClicked: dialogs.openImportGerberDialog()
                     onClearAllClicked: root.clearAllRows()
                     onDeleteSelectionClicked: root.deleteSelectionRows()
                     onAddRowClicked: root.addRowData()
@@ -862,46 +1025,46 @@ FluContentPage{
                     onStepClicked: root.stepRunOnce()
                 }
 
-            CubexFluTableView{
-                id:table_view
-                highlightRow: root.visibleRunCurrentRow
-                useHomePreset: true
-                homeDelegates: delegates
-                homeNormalizer: mainWindow.normalizeHomeRow
-                pageCurrent: gagination.pageCurrent
-                itemPerPage: gagination.__itemPerPage
-                anchors{
-                    left: parent.left
-                    right: parent.right
-                    top: layout_controls.bottom
-                    bottom: gagination.top
-                }
-                anchors.topMargin: 5
-                onRowsChanged: {
-                    root.checkBoxChanged()
-                    root.syncCurrentRunHighlight()
-                }
-            }
-
-            FluPagination{
-                id:gagination
-                anchors{
-                    bottom: parent.bottom
-                    left: parent.left
-                }
-                pageCurrent: 1
-                itemCount: 100000
-                pageButtonCount: 7
-                __itemPerPage: 1000
-                previousText: qsTr("<Previous")
-                nextText: qsTr("Next>")
-                onRequestPage:
-                    (page,count)=> {
-                        table_view.closeEditor()
-                        loadData(page,count)
-                        table_view.resetPosition()
+                CubexFluTableView{
+                    id:table_view
+                    highlightRow: root.visibleRunCurrentRow
+                    useHomePreset: true
+                    homeDelegates: delegates
+                    homeNormalizer: mainWindow.normalizeHomeRow
+                    pageCurrent: gagination.pageCurrent
+                    itemPerPage: gagination.__itemPerPage
+                    anchors{
+                        left: parent.left
+                        right: parent.right
+                        top: layout_controls.bottom
+                        bottom: gagination.top
                     }
-            }
+                    anchors.topMargin: 5
+                    onRowsChanged: {
+                        root.checkBoxChanged()
+                        root.syncCurrentRunHighlight()
+                    }
+                }
+
+                FluPagination{
+                    id:gagination
+                    anchors{
+                        bottom: parent.bottom
+                        left: parent.left
+                    }
+                    pageCurrent: 1
+                    itemCount: 100000
+                    pageButtonCount: 7
+                    __itemPerPage: 1000
+                    previousText: qsTr("<Previous")
+                    nextText: qsTr("Next>")
+                    onRequestPage:
+                        (page,count)=> {
+                            table_view.closeEditor()
+                            loadData(page,count)
+                            table_view.resetPosition()
+                        }
+                }
             }
         }
 

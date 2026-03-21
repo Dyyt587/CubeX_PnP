@@ -17,6 +17,10 @@ Item {
         fileImportDialog.open()
     }
 
+    function openImportGerberDialog() {
+        importGerberDialog.open()
+    }
+
     FileDialog {
         id: fileImportDialog
         title: qsTr("选择要导入的文件")
@@ -155,6 +159,21 @@ Item {
         function showPopup() {
             control.tableView.closeEditor()
             pop_filter_layer.popup()
+        }
+    }
+
+    FileDialog {
+        id: importGerberDialog
+        title: qsTr("导入Gerber")
+        nameFilters: [
+            qsTr("Gerber/Zip (*.gbr *.gtl *.gbl *.gto *.gbo *.gts *.gbs *.gko *.zip)"),
+            qsTr("All Files (*)")
+        ]
+        fileMode: FileDialog.OpenFile
+        onAccepted: {
+            if (selectedFile && control.rootPage && control.rootPage.importGerberFile) {
+                control.rootPage.importGerberFile(selectedFile)
+            }
         }
     }
 }

@@ -9,6 +9,7 @@ FluFrame {
     property real mountedProgress: 0
 
     signal importClicked()
+    signal importGerberClicked()
     signal clearAllClicked()
     signal deleteSelectionClicked()
     signal addRowClicked()
@@ -35,6 +36,11 @@ FluFrame {
             text: qsTr("导入文件")
             onClicked: control.importClicked()
         }
+        FluButton {
+            text: qsTr("导入Gerber")
+            onClicked: control.importGerberClicked()
+        }
+
         FluButton {
             text: qsTr("Clear All")
             onClicked: control.clearAllClicked()
