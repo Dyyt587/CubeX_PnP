@@ -93,6 +93,9 @@ int main(int argc, char *argv[])
     qputenv("QML_COMPAT_RESOLVE_URLS_ON_ASSIGNMENT", "1");
 
     QGuiApplication app(argc, argv);
+    QCoreApplication::setOrganizationName(QStringLiteral("CubeX"));
+    QCoreApplication::setOrganizationDomain(QStringLiteral("cubex.local"));
+    QCoreApplication::setApplicationName(QStringLiteral("CubeX_PnP"));
 
     QQmlApplicationEngine engine;
     SerialPortManager serialPortManager;

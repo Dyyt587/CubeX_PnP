@@ -73,6 +73,7 @@ qt_add_qml_module(appCubeX_PnP
         QML/page/CameraCard.qml
         QML/page/DeviceConnectionPage.qml
         QML/page/HomePage.qml
+        QML/page/PackageLibraryPage.qml
         QML/page/SettingsPage.qml
         SOURCES src/helper/CameraDeviceManager.cpp src/helper/CameraDeviceManager.h src/helper/CameraScanManager.cpp src/helper/CameraScanManager.h src/helper/CsvFileReader.cpp src/helper/CsvFileReader.h src/helper/GerberPreviewManager.cpp src/helper/GerberPreviewManager.h src/helper/GerberPreviewRenderer.cpp src/helper/GerberPreviewRenderer.h src/helper/InitializrHelper.cpp src/helper/InitializrHelper.h src/helper/Log.cpp src/helper/Log.h src/helper/OpenCvPreviewManager.cpp src/helper/OpenCvPreviewManager.h src/helper/SerialPortManager.cpp src/helper/SerialPortManager.h src/helper/SettingsHelper.cpp src/helper/SettingsHelper.h src/helper/SMTWork.cpp src/helper/SMTWork.h src/helper/TranslateHelper.cpp src/helper/TranslateHelper.h
         SOURCES Version.h

@@ -34,9 +34,9 @@ FluContentPage{
     property real placementMinZoom: 0.2
     property real placementMaxZoom: 8.0
     // true: 左下原点且 y 向上为正；false: 左下原点且 y 向下为正（历史负Y数据）。
-    property bool placementBottomLeftYPositive: true
-    property real placementOffsetXMm: 0
-    property real placementOffsetYMm: 0
+    property bool placementBottomLeftYPositive: mainWindow.homePlacementBottomLeftYPositive
+    property real placementOffsetXMm: mainWindow.homePlacementOffsetXMm
+    property real placementOffsetYMm: mainWindow.homePlacementOffsetYMm
     signal checkBoxChanged
     signal runCurrentItemChanged(int rowIndex, var item)
 
@@ -103,6 +103,18 @@ FluContentPage{
 
     function offsetSpinTextFromValue(spinValue) {
         return spinToOffsetMm(spinValue).toFixed(2)
+    }
+
+    function resetHomePlacementAdjustments() {
+        if (mainWindow && mainWindow.resetHomePlacementAdjustments) {
+            mainWindow.resetHomePlacementAdjustments()
+            return
+        }
+        if (mainWindow) {
+            mainWindow.homePlacementBottomLeftYPositive = true
+            mainWindow.homePlacementOffsetXMm = 0
+            mainWindow.homePlacementOffsetYMm = 0
+        }
     }
 
     function placementRowsForPreview() {
@@ -543,6 +555,7 @@ FluContentPage{
 
         // 加载到表格
         applyHomeTableData(dataSource)
+        resetHomePlacementAdjustments()
         Qt.callLater(function() {
             table_view.resizeHomeColumnsToContents()
         })
@@ -583,6 +596,7 @@ FluContentPage{
         var heightText = Number(gerberPreviewManager.boardHeightMm).toFixed(3)
         var okMsg = qsTr("解析成功：板子尺寸约为 ") + widthText + qsTr(" mm x ") + heightText + qsTr(" mm")
         ok(okMsg)
+        resetHomePlacementAdjustments()
         rebuildPlacementPreviewPoints()
         resetPlacementView(false)
         ok(qsTr("Gerber 已导入并更新预览"))
@@ -926,7 +940,7 @@ FluContentPage{
                                     FluToggleSwitch {
                                         text: qsTr("Y向上为正")
                                         checked: root.placementBottomLeftYPositive
-                                        onClicked: root.placementBottomLeftYPositive = checked
+                                        onClicked: mainWindow.homePlacementBottomLeftYPositive = checked
                                     }
 
                                     Row {
@@ -950,10 +964,10 @@ FluContentPage{
                                                 return root.offsetSpinValueFromText(text)
                                             }
                                             onValueModified: {
-                                                root.placementOffsetXMm = root.spinToOffsetMm(value)
+                                                mainWindow.homePlacementOffsetXMm = root.spinToOffsetMm(value)
                                             }
                                             onValueChanged: {
-                                                root.placementOffsetXMm = root.spinToOffsetMm(value)
+                                                mainWindow.homePlacementOffsetXMm = root.spinToOffsetMm(value)
                                             }
                                         }
                                     }
@@ -979,10 +993,10 @@ FluContentPage{
                                                 return root.offsetSpinValueFromText(text)
                                             }
                                             onValueModified: {
-                                                root.placementOffsetYMm = root.spinToOffsetMm(value)
+                                                mainWindow.homePlacementOffsetYMm = root.spinToOffsetMm(value)
                                             }
                                             onValueChanged: {
-                                                root.placementOffsetYMm = root.spinToOffsetMm(value)
+                                                mainWindow.homePlacementOffsetYMm = root.spinToOffsetMm(value)
                                             }
                                         }
                                     }

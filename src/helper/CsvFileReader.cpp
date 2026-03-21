@@ -6,6 +6,14 @@
 #include <QFileInfo>
 #include <QDir>
 
+static QString csvEscapeField(const QString &input)
+{
+    QString field = input;
+    const bool mustQuote = field.contains(',') || field.contains('"') || field.contains('\n') || field.contains('\r') || field.contains('\t');
+    field.replace('"', "\"\"");
+    return mustQuote ? QString("\"%1\"").arg(field) : field;
+}
+
 CsvFileReader::CsvFileReader(QObject *parent)
     : QObject(parent)
 {
@@ -148,6 +156,69 @@ QVariantList CsvFileReader::readCsvFile(const QString &filePath)
 
     emit fileParsed(result);
     return result;
+}
+
+bool CsvFileReader::writeCsvFile(const QString &filePath, const QVariantList &rows, const QStringList &headers)
+{
+    lastError.clear();
+
+    QString localPath = filePath;
+    if (filePath.startsWith("file:///")) {
+        localPath = QUrl(filePath).toLocalFile();
+    }
+
+    if (localPath.trimmed().isEmpty()) {
+        lastError = "Invalid file path";
+        emit parseError(lastError);
+        return false;
+    }
+
+    QFileInfo info(localPath);
+    QDir().mkpath(info.absolutePath());
+
+    QFile file(localPath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        lastError = QString("Failed to write file: %1").arg(localPath);
+        emit parseError(lastError);
+        qWarning() << "CsvFileReader:" << lastError;
+        return false;
+    }
+
+    QTextStream out(&file);
+    out.setEncoding(QStringConverter::Utf8);
+
+    QStringList finalHeaders = headers;
+    if (finalHeaders.isEmpty() && !rows.isEmpty()) {
+        const QVariantMap first = rows.first().toMap();
+        finalHeaders = first.keys();
+    }
+
+    if (finalHeaders.isEmpty()) {
+        lastError = "No headers for CSV export";
+        file.close();
+        emit parseError(lastError);
+        return false;
+    }
+
+    QStringList escapedHeaders;
+    escapedHeaders.reserve(finalHeaders.size());
+    for (const QString &header : finalHeaders) {
+        escapedHeaders.append(csvEscapeField(header));
+    }
+    out << escapedHeaders.join(',') << '\n';
+
+    for (const QVariant &rowVar : rows) {
+        const QVariantMap row = rowVar.toMap();
+        QStringList fields;
+        fields.reserve(finalHeaders.size());
+        for (const QString &key : finalHeaders) {
+            fields.append(csvEscapeField(row.value(key).toString()));
+        }
+        out << fields.join(',') << '\n';
+    }
+
+    file.close();
+    return true;
 }
 
 QStringList CsvFileReader::csvFilesInWorkingDirectory() const

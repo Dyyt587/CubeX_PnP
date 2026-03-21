@@ -31,6 +31,9 @@ FluWindow {
     property int homeRunCurrentRow: -1
     property int homeRunLastMountedRow: -1
     property real homeMountedProgress: 0
+    property bool homePlacementBottomLeftYPositive: true
+    property real homePlacementOffsetXMm: 0
+    property real homePlacementOffsetYMm: 0
     property var homeRunOrder: []
     property int homeRunOrderPos: -1
     property string serialSelectedComPort: ""
@@ -134,6 +137,12 @@ FluWindow {
             }
         }
         homeMountedProgress = selectedCount > 0 ? (mountedCount / selectedCount) : 0
+    }
+
+    function resetHomePlacementAdjustments() {
+        homePlacementBottomLeftYPositive = true
+        homePlacementOffsetXMm = 0
+        homePlacementOffsetYMm = 0
     }
 
     function setHomeTableData(rows) {
@@ -528,6 +537,13 @@ FluWindow {
             title: qsTr("设备连接")
             icon: FluentIcons.Connect
             url: "qrc:/qt/qml/CubeX_PnP/QML/page/DeviceConnectionPage.qml"
+            onTap: nav_view.push(url)
+        }
+
+        FluPaneItem {
+            title: qsTr("封装库")
+            icon: FluentIcons.BulletedList
+            url: "qrc:/qt/qml/CubeX_PnP/QML/page/PackageLibraryPage.qml"
             onTap: nav_view.push(url)
         }
 
