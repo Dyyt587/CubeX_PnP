@@ -260,6 +260,57 @@ Item {
         return homeBuildUiRow(source[rawRowIndex], rawRowIndex + 1)
     }
 
+    function estimateHomeTextWidth(value) {
+        var text = value === undefined || value === null ? "" : String(value)
+        var asciiChars = text.replace(/[^\x00-\x7F]/g, "").length
+        var nonAsciiChars = text.length - asciiChars
+        // 非 ASCII 字符通常更宽，按 16px 估算可以避免中文等内容被截断。
+        return Math.ceil(asciiChars * 8 + nonAsciiChars * 16 + 24)
+    }
+
+    function resizeHomeColumnsToContents(maxSampleRows) {
+        if (!useHomePreset || !_tableView.columnSource || _tableView.columnSource.length === 0) {
+            return
+        }
+
+        var sourceRows = _tableView.sourceModel ? _tableView.sourceModel.rowCount : _tableView.rows
+        if (!sourceRows || sourceRows <= 0) {
+            return
+        }
+
+        var sampleCount = Math.min(sourceRows, Math.max(1, maxSampleRows || 500))
+        var dataIndexes = ["name", "avatar", "address", "nickname", "longstring", "layer", "component_name"]
+
+        for (var c = 0; c < _tableView.columnSource.length; c++) {
+            var column = _tableView.columnSource[c]
+            if (!column || dataIndexes.indexOf(column.dataIndex) < 0) {
+                continue
+            }
+
+            var minimumWidth = column.minimumWidth || 80
+            var maximumWidth = column.maximumWidth || 65535
+            var nextWidth = estimateHomeTextWidth(column.dataIndex)
+
+            for (var r = 0; r < sampleCount; r++) {
+                var row = _tableView.getRow(r)
+                if (!row) {
+                    continue
+                }
+                var value = row[column.dataIndex]
+                if (typeof value === "object") {
+                    continue
+                }
+                nextWidth = Math.max(nextWidth, estimateHomeTextWidth(value))
+            }
+
+            column.width = Math.min(Math.max(minimumWidth, nextWidth), maximumWidth)
+        }
+
+        if (_tableView.view && typeof _tableView.view.forceLayout === "function") {
+            _tableView.view.forceLayout()
+        }
+    }
+
     function updateStartRowIndex() {
         if (!useHomePreset) {
             return

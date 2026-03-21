@@ -24,8 +24,160 @@ FluContentPage{
     property int runCurrentRow: mainWindow.homeRunCurrentRow
     property real mountedProgress: mainWindow.homeMountedProgress
     property int visibleRunCurrentRow: -1
+    property real placementObjectWidthMm: 15.748
+    property real placementObjectHeightMm: 25.527
+    property var placementPreviewPoints: []
+    property real placementZoom: 1.0
+    property real placementPanX: 0
+    property real placementPanY: 0
+    property bool placementFillView: false
+    property real placementMinZoom: 0.2
+    property real placementMaxZoom: 8.0
     signal checkBoxChanged
     signal runCurrentItemChanged(int rowIndex, var item)
+
+    function resetPlacementView(fillView) {
+        placementFillView = !!fillView
+        placementZoom = 1.0
+        placementPanX = 0
+        placementPanY = 0
+    }
+
+    function clampPlacementPan() {
+        if (!placementViewport || !placementImage) {
+            return
+        }
+        // 允许任意一侧边缘拖到视口中心，而不仅仅是拖到视口边缘。
+        var maxOffsetX = placementImage.width - 8
+        var maxOffsetY = placementImage.height - 8
+        placementPanX = Math.max(-maxOffsetX, Math.min(maxOffsetX, placementPanX))
+        placementPanY = Math.max(-maxOffsetY, Math.min(maxOffsetY, placementPanY))
+    }
+
+    function zoomPlacement(factor) {
+        if (!isFinite(factor) || factor <= 0) {
+            return
+        }
+        var nextZoom = placementZoom * factor
+        nextZoom = Math.max(placementMinZoom, Math.min(placementMaxZoom, nextZoom))
+        if (nextZoom === placementZoom) {
+            return
+        }
+        placementZoom = nextZoom
+        clampPlacementPan()
+    }
+
+    function parseCoordinateMm(rawValue) {
+        if (rawValue === undefined || rawValue === null) {
+            return NaN
+        }
+        var text = String(rawValue)
+        var match = text.match(/-?\d+(\.\d+)?/)
+        if (!match || match.length <= 0) {
+            return NaN
+        }
+        return Number(match[0])
+    }
+
+    function placementRowsForPreview() {
+        var rows = mainWindow.homeTableData || []
+        if (rows.length > 0) {
+            return rows
+        }
+        if (table_view && typeof table_view.collectHomeRawRowsFromSource === "function") {
+            return table_view.collectHomeRawRowsFromSource()
+        }
+        return []
+    }
+
+    function rebuildPlacementPreviewPoints() {
+        var rows = placementRowsForPreview()
+        var nextPoints = []
+        var statsXMin = Number.POSITIVE_INFINITY
+        var statsXMax = Number.NEGATIVE_INFINITY
+        var statsYMin = Number.POSITIVE_INFINITY
+        var statsYMax = Number.NEGATIVE_INFINITY
+
+        for (var s = 0; s < rows.length; s++) {
+            var statRow = rows[s]
+            if (!statRow) {
+                continue
+            }
+            var statX = parseCoordinateMm(statRow.address)
+            var statY = parseCoordinateMm(statRow.nickname)
+            if (!isFinite(statX) || !isFinite(statY)) {
+                continue
+            }
+            statsXMin = Math.min(statsXMin, statX)
+            statsXMax = Math.max(statsXMax, statX)
+            statsYMin = Math.min(statsYMin, statY)
+            statsYMax = Math.max(statsYMax, statY)
+        }
+
+        var tolerance = 0.15
+        var mode = "fitRange"
+        if (isFinite(statsXMin) && isFinite(statsXMax) && isFinite(statsYMin) && isFinite(statsYMax)) {
+            var xInObjectRange = statsXMin >= -placementObjectWidthMm * tolerance && statsXMax <= placementObjectWidthMm * (1 + tolerance)
+            var yInNegativeRange = statsYMin >= -placementObjectHeightMm * (1 + tolerance) && statsYMax <= placementObjectHeightMm * tolerance
+            var xInCenterRange = statsXMin >= -placementObjectWidthMm * (0.5 + tolerance) && statsXMax <= placementObjectWidthMm * (0.5 + tolerance)
+            var yInCenterRange = statsYMin >= -placementObjectHeightMm * (0.5 + tolerance) && statsYMax <= placementObjectHeightMm * (0.5 + tolerance)
+
+            // 右上为正，且 y 常见为 [-H,0]：原点在图像左上角。
+            if (xInObjectRange && yInNegativeRange) {
+                mode = "topLeftUpPositive"
+            } else if (xInCenterRange && yInCenterRange) {
+                mode = "centerUpPositive"
+            }
+        }
+
+        for (var i = 0; i < rows.length; i++) {
+            var row = rows[i]
+            if (!row) {
+                continue
+            }
+
+            var layerText = row.layer === undefined || row.layer === null ? "" : String(row.layer).trim().toUpperCase()
+            if (layerText !== "T") {
+                continue
+            }
+            if (!row.selected) {
+                continue
+            }
+
+            var xMm = parseCoordinateMm(row.address)
+            var yMm = parseCoordinateMm(row.nickname)
+            if (!isFinite(xMm) || !isFinite(yMm)) {
+                continue
+            }
+
+            var normalizedX
+            var normalizedY
+            if (mode === "topLeftUpPositive") {
+                // 左上原点，x 向右正，y 向上正（屏幕坐标需翻转）。
+                normalizedX = xMm / placementObjectWidthMm
+                normalizedY = -yMm / placementObjectHeightMm
+            } else if (mode === "centerUpPositive") {
+                // 中心原点，x 向右正，y 向上正。
+                normalizedX = (xMm + placementObjectWidthMm / 2) / placementObjectWidthMm
+                normalizedY = (-yMm + placementObjectHeightMm / 2) / placementObjectHeightMm
+            } else {
+                // 坐标范围无法判定时，按数据范围自适应，避免点被大量压到角落。
+                var xDen = Math.max(0.000001, statsXMax - statsXMin)
+                var yDen = Math.max(0.000001, statsYMax - statsYMin)
+                normalizedX = (xMm - statsXMin) / xDen
+                normalizedY = (statsYMax - yMm) / yDen
+            }
+
+            normalizedX = Math.max(0, Math.min(1, normalizedX))
+            normalizedY = Math.max(0, Math.min(1, normalizedY))
+            nextPoints.push({
+                xNorm: normalizedX,
+                yNorm: normalizedY,
+                key: row._key || ("p_" + i)
+            })
+        }
+        placementPreviewPoints = nextPoints
+    }
 
     function warn(text) {
         showWarning(text)
@@ -253,6 +405,7 @@ FluContentPage{
         scheduleResolvePreviewDevices()
         applyFilters()
         updateMountedProgress()
+        rebuildPlacementPreviewPoints()
     }
 
     Connections {
@@ -260,6 +413,7 @@ FluContentPage{
         function onHomeTableDataChanged() {
             // 运行期间（尤其带排序时）避免整表 dataSource 重建，防止模型重排导致崩溃。
             // 页面可见时会在 onVisibleChanged 中主动同步一次。
+            rebuildPlacementPreviewPoints()
         }
         function onHomeRunCurrentRowChanged() {
             table_view.markMountedByRawIndex(mainWindow.homeTableData, mainWindow.homeRunLastMountedRow, delegates.com_mounted_checkbox)
@@ -271,6 +425,14 @@ FluContentPage{
         }
         function onHomeMountedProgressChanged() {
             mountedProgress = mainWindow.homeMountedProgress
+        }
+    }
+
+    Connections {
+        target: table_view
+        function onRowsChanged() {
+            // 兼容延迟加载/后台加载后仅更新表格模型但尚未同步到 mainWindow 的场景。
+            rebuildPlacementPreviewPoints()
         }
     }
 
@@ -311,7 +473,7 @@ FluContentPage{
                 rowIndex: row.rowIndex || (i + 1),
                 selected: row.SMD === "Yes",
                 name: row.Designator || row.designator || "",
-                avatar: row.Device || row.device || row.Footprint || row.footprint || "",
+                avatar:  row.Footprint || row.footprint ||row.Device || row.device || "",
                 age: row.Pins || "0",
                 address: row["Mid X"] || row.midX || row.midx || "",  // x坐标
                 nickname: row["Mid Y"] || row.midY || row.midy || "", // y坐标
@@ -328,6 +490,9 @@ FluContentPage{
 
         // 加载到表格
         applyHomeTableData(dataSource)
+        Qt.callLater(function() {
+            table_view.resizeHomeColumnsToContents()
+        })
 
         gagination.pageCurrent = 1
         mainWindow.homeTablePageCurrent = 1
@@ -448,6 +613,7 @@ FluContentPage{
         if (visible) {
             refreshHomeTableFromState()
             Qt.callLater(syncCurrentRunHighlight)
+            Qt.callLater(rebuildPlacementPreviewPoints)
             scanStartupTimer.restart()
         } else {
             cameraDeviceManager.stopScanning()
@@ -536,6 +702,131 @@ FluContentPage{
                     Item {
                         anchors.fill: parent
                         clip: true
+
+                        Item {
+                            id: placementViewport
+                            anchors.fill: parent
+                            anchors.margins: 8
+                            clip: true
+
+                            readonly property real imageAspect: {
+                                if (!placementImage.sourceSize || placementImage.sourceSize.width <= 0 || placementImage.sourceSize.height <= 0) {
+                                    return 1
+                                }
+                                return placementImage.sourceSize.width / placementImage.sourceSize.height
+                            }
+                            readonly property real viewportAspect: width > 0 && height > 0 ? width / height : 1
+                            readonly property real baseImageWidth: {
+                                if (placementFillView) {
+                                    return imageAspect > viewportAspect ? height * imageAspect : width
+                                }
+                                return imageAspect > viewportAspect ? width : height * imageAspect
+                            }
+                            readonly property real baseImageHeight: {
+                                if (placementFillView) {
+                                    return imageAspect > viewportAspect ? height : width / imageAspect
+                                }
+                                return imageAspect > viewportAspect ? width / imageAspect : height
+                            }
+
+                            Image {
+                                id: placementImage
+                                width: placementViewport.baseImageWidth * root.placementZoom
+                                height: placementViewport.baseImageHeight * root.placementZoom
+                                x: (placementViewport.width - width) / 2 + root.placementPanX
+                                y: (placementViewport.height - height) / 2 + root.placementPanY
+                                source: "qrc:/image/png/004914.png"
+                                fillMode: Image.PreserveAspectFit
+                                smooth: true
+                                mipmap: true
+                                onWidthChanged: root.clampPlacementPan()
+                                onHeightChanged: root.clampPlacementPan()
+                            }
+
+                            Item {
+                                id: placementOverlay
+                                x: placementImage.x + (placementImage.width - placementImage.paintedWidth) / 2
+                                y: placementImage.y + (placementImage.height - placementImage.paintedHeight) / 2
+                                width: placementImage.paintedWidth
+                                height: placementImage.paintedHeight
+                                visible: placementImage.status === Image.Ready && width > 0 && height > 0
+                                clip: true
+
+                                Repeater {
+                                    model: root.placementPreviewPoints
+                                    delegate: Rectangle {
+                                        property var pointData: modelData
+                                        width: 10
+                                        height: 10
+                                        radius: width / 2
+                                        color: Qt.rgba(1, 0, 0, 0.18)
+                                        border.color: "#FF2D2D"
+                                        border.width: 1.5
+                                        antialiasing: true
+                                        x: pointData.xNorm * placementOverlay.width - width / 2
+                                        y: pointData.yNorm * placementOverlay.height - height / 2
+                                    }
+                                }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                acceptedButtons: Qt.LeftButton
+                                hoverEnabled: true
+                                cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                                property real lastMouseX: 0
+                                property real lastMouseY: 0
+
+                                onPressed: {
+                                    lastMouseX = mouse.x
+                                    lastMouseY = mouse.y
+                                }
+                                onPositionChanged: {
+                                    if (!(mouse.buttons & Qt.LeftButton)) {
+                                        return
+                                    }
+                                    var dx = mouse.x - lastMouseX
+                                    var dy = mouse.y - lastMouseY
+                                    lastMouseX = mouse.x
+                                    lastMouseY = mouse.y
+                                    root.placementPanX += dx
+                                    root.placementPanY += dy
+                                    root.clampPlacementPan()
+                                }
+                                onWheel: function(wheel) {
+                                    root.zoomPlacement(wheel.angleDelta.y > 0 ? 1.1 : 1 / 1.1)
+                                    wheel.accepted = true
+                                }
+                            }
+
+                            Column {
+                                spacing: 8
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                anchors.rightMargin: 10
+                                anchors.bottomMargin: 10
+
+                                FluIconButton {
+                                    iconSource: FluentIcons.FitPage
+                                    onClicked: root.resetPlacementView(false)
+                                }
+
+                                FluIconButton {
+                                    iconSource: FluentIcons.FullScreen
+                                    onClicked: root.resetPlacementView(true)
+                                }
+
+                                FluIconButton {
+                                    iconSource: FluentIcons.BackToWindow
+                                    onClicked: {
+                                        root.placementZoom = 1.0
+                                        root.placementPanX = 0
+                                        root.placementPanY = 0
+                                        root.clampPlacementPan()
+                                    }
+                                }
+                            }
+                        }
 
                         // WebView {
                         //     id: bomWebView
@@ -656,7 +947,7 @@ FluContentPage{
                     rowIndex: dataSource.length + 1,
                     selected: row.SMD === "Yes",
                     name: row.Designator || row.designator || "",
-                    avatar: row.Device || row.device || row.Footprint || row.footprint || "",
+                    avatar:  row.Footprint || row.footprint || row.Device || row.device ||"",
                     age: row.Pins || "0",
                     address: row["Mid X"] || row.midX || row.midx || "",
                     nickname: row["Mid Y"] || row.midY || row.midy || "",
@@ -676,6 +967,9 @@ FluContentPage{
         }
 
         applyHomeTableData(dataSource)
+        Qt.callLater(function() {
+            table_view.resizeHomeColumnsToContents()
+        })
         gagination.pageCurrent = 1
         mainWindow.homeTablePageCurrent = 1
         root.allCheckState = Qt.Unchecked
