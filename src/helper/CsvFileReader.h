@@ -17,6 +17,11 @@ public:
     Q_INVOKABLE QVariantList readCsvFile(const QString &filePath);
     Q_INVOKABLE bool writeCsvFile(const QString &filePath, const QVariantList &rows, const QStringList &headers);
     Q_INVOKABLE QStringList csvFilesInWorkingDirectory() const;
+    Q_INVOKABLE QString appDataFolderPath() const;
+    Q_INVOKABLE QString packageLibraryCsvPath() const;
+    Q_INVOKABLE bool packageLibraryCsvExists() const;
+    Q_INVOKABLE QVariantList readPackageLibraryCsv();
+    Q_INVOKABLE bool writePackageLibraryCsv(const QVariantList &rows, const QStringList &headers);
     Q_INVOKABLE QString getLastError() const;
 
 private:

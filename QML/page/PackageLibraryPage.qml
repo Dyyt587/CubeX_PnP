@@ -12,6 +12,8 @@ FluContentPage {
     title: qsTr("封装库")
 
     property string searchKeyword: ""
+    property int visibleCount: 0
+    signal packageDataChanged()
 
     function ok(text) {
         showSuccess(text)
@@ -57,29 +59,58 @@ FluContentPage {
             }
             packageModel.append(row)
         }
+        packageDataChanged()
     }
 
     function saveLibrary() {
+        if (!persistLibraryFile(true)) {
+            return
+        }
         packageStore.dataJson = JSON.stringify(modelToArray())
-        ok(qsTr("封装库已保存"))
+        ok(qsTr("封装库已保存到软件数据目录"))
+    }
+
+    function persistLibraryFile(showError) {
+        var headers = ["pkg", "size", "category", "note"]
+        if (!csvFileReader.writePackageLibraryCsv(modelToArray(), headers)) {
+            if (showError) {
+                var err = csvFileReader.getLastError()
+                warn(err && err !== "" ? err : qsTr("封装库文件保存失败"))
+            }
+            return false
+        }
+        return true
     }
 
     function loadLibrary() {
+        if (csvFileReader.packageLibraryCsvExists()) {
+            var rows = csvFileReader.readPackageLibraryCsv()
+            if (rows && rows.length !== undefined && rows.length > 0) {
+                var mapped = []
+                for (var i = 0; i < rows.length; i++) {
+                    mapped.push(normalizeRecord(rows[i]))
+                }
+                loadFromArray(mapped, false)
+                return
+            }
+        }
+
         var text = packageStore.dataJson
         if (!text || text.trim() === "") {
-            loadDefaults(false)
+            loadDefaults(true)
             return
         }
         try {
             var parsed = JSON.parse(text)
             if (parsed && parsed.length !== undefined) {
                 loadFromArray(parsed, false)
+                persistLibraryFile(false)
                 return
             }
         } catch (e) {
             warn(qsTr("封装库数据损坏，已恢复默认"))
         }
-        loadDefaults(false)
+        loadDefaults(true)
     }
 
     function loadDefaults(saveAfter) {
@@ -87,8 +118,10 @@ FluContentPage {
         for (var i = 0; i < defaultData.length; i++) {
             packageModel.append(defaultData[i])
         }
+        packageDataChanged()
         if (saveAfter) {
             packageStore.dataJson = JSON.stringify(modelToArray())
+            persistLibraryFile(false)
         }
     }
 
@@ -126,7 +159,9 @@ FluContentPage {
         } else {
             packageModel.append(row)
         }
+        packageDataChanged()
         packageStore.dataJson = JSON.stringify(modelToArray())
+        persistLibraryFile(false)
         ok(qsTr("已保存封装记录"))
     }
 
@@ -135,7 +170,9 @@ FluContentPage {
             return
         }
         packageModel.remove(index)
+        packageDataChanged()
         packageStore.dataJson = JSON.stringify(modelToArray())
+        persistLibraryFile(false)
         ok(qsTr("已删除封装记录"))
     }
 
@@ -158,7 +195,10 @@ FluContentPage {
         }
         loadFromArray(mapped, true)
         packageStore.dataJson = JSON.stringify(modelToArray())
-        ok(qsTr("CSV 导入成功，共 ") + rows.length + qsTr(" 条"))
+        if (!persistLibraryFile(true)) {
+            return
+        }
+        ok(qsTr("CSV 导入成功，并已覆盖保存到软件数据目录，共 ") + rows.length + qsTr(" 条"))
     }
 
     function exportCsv(path) {
@@ -275,7 +315,10 @@ FluContentPage {
                     Layout.fillWidth: true
                     placeholderText: qsTr("按封装名搜索，如 0603 / QFN / SOT")
                     text: page.searchKeyword
-                    onTextChanged: page.searchKeyword = text
+                    onTextChanged: {
+                        page.searchKeyword = text
+                        page.packageDataChanged()
+                    }
                 }
 
                 FluButton { text: qsTr("新增"); onClicked: page.openEditor(-1) }
@@ -291,70 +334,126 @@ FluContentPage {
                 }
             }
 
-            Rectangle {
+            RowLayout {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 40
-                radius: 6
-                color: FluTheme.dark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.05)
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 12
-                    anchors.rightMargin: 12
-                    spacing: 12
-
-                    FluText { text: qsTr("封装名称"); Layout.preferredWidth: 160; font: FluTextStyle.BodyStrong }
-                    FluText { text: qsTr("封装大小(mm)"); Layout.preferredWidth: 170; font: FluTextStyle.BodyStrong }
-                    FluText { text: qsTr("分类"); Layout.preferredWidth: 160; font: FluTextStyle.BodyStrong }
-                    FluText { text: qsTr("备注"); Layout.fillWidth: true; font: FluTextStyle.BodyStrong }
+                FluText {
+                    text: qsTr("项目总数：") + packageModel.count + qsTr("，当前显示：") + page.visibleCount
+                    font: FluTextStyle.BodyStrong
                 }
             }
 
-            ListView {
+            Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                clip: true
-                spacing: 4
-                model: packageModel
 
-                delegate: Rectangle {
-                    id: rowDelegate
-                    required property int index
-                    required property string pkg
-                    required property string size
-                    required property string category
-                    required property string note
+                FluTabView {
+                    id: tableTabView
+                    anchors.fill: parent
+                    addButtonVisibility: false
+                    closeButtonVisibility: FluTabViewType.Never
+                    tabWidthBehavior: FluTabViewType.SizeToContent
 
-                    readonly property bool matched: page.searchKeyword.trim() === "" ||
-                                                  rowDelegate.pkg.toLowerCase().indexOf(page.searchKeyword.trim().toLowerCase()) !== -1
-                    visible: matched
-                    width: ListView.view.width
-                    height: matched ? 40 : 0
-                    radius: 6
-                    color: index % 2 === 0
-                           ? (FluTheme.dark ? Qt.rgba(1, 1, 1, 0.03) : Qt.rgba(0, 0, 0, 0.02))
-                           : "transparent"
+                    Component.onCompleted: {
+                        tableTabView.appendTab("", qsTr("封装列表"), packageTableTab)
+                    }
+                }
+            }
 
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 12
-                        anchors.rightMargin: 12
-                        spacing: 12
+            Component {
+                id: packageTableTab
+                Item {
+                    id: packageTableRoot
+                    anchors.fill: parent
 
-                        FluText { text: rowDelegate.pkg; Layout.preferredWidth: 160 }
-                        FluText { text: rowDelegate.size; Layout.preferredWidth: 170 }
-                        FluText { text: rowDelegate.category; Layout.preferredWidth: 160 }
-                        FluText { text: rowDelegate.note; Layout.fillWidth: true; elide: Text.ElideRight }
-
-                        FluButton {
-                            text: qsTr("编辑")
-                            Layout.preferredWidth: 54
-                            onClicked: page.openEditor(rowDelegate.index)
+                    function rebuildTableData() {
+                        var rows = []
+                        var key = page.searchKeyword.trim().toLowerCase()
+                        var count = 0
+                        for (var i = 0; i < packageModel.count; i++) {
+                            var item = packageModel.get(i)
+                            var pkg = String(item.pkg || "")
+                            if (key !== "" && pkg.toLowerCase().indexOf(key) === -1) {
+                                continue
+                            }
+                            count++
+                            rows.push({
+                                sourceIndex: i,
+                                pkg: pkg,
+                                size: String(item.size || ""),
+                                category: String(item.category || ""),
+                                note: String(item.note || ""),
+                                action: packageTableView.customItem(rowActionDelegate, { sourceIndex: i })
+                            })
                         }
-                        FluButton {
-                            text: qsTr("删除")
-                            Layout.preferredWidth: 54
-                            onClicked: page.removeRecord(rowDelegate.index)
+                        page.visibleCount = count
+                        packageTableView.dataSource = rows
+                    }
+
+                    Component.onCompleted: rebuildTableData()
+
+                    Connections {
+                        target: page
+                        function onPackageDataChanged() {
+                            packageTableRoot.rebuildTableData()
+                        }
+                    }
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        spacing: 6
+
+                        FluTableView {
+                            id: packageTableView
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            verticalHeaderVisible: false
+                            columnWidthProvider: function(column) {
+                                if (column === 3) {
+                                    var fixed = 180 + 190 + 170 + 150
+                                    return Math.max(220, packageTableView.width - fixed - 24)
+                                }
+                                if (column === 0) return 180
+                                if (column === 1) return 190
+                                if (column === 2) return 170
+                                if (column === 4) return 150
+                                return 120
+                            }
+                            columnSource: [
+                                { title: qsTr("封装名称"), dataIndex: "pkg", width: 180, minimumWidth: 140 },
+                                { title: qsTr("封装大小(mm)"), dataIndex: "size", width: 190, minimumWidth: 150 },
+                                { title: qsTr("分类"), dataIndex: "category", width: 170, minimumWidth: 130 },
+                                { title: qsTr("备注"), dataIndex: "note", width: 360, minimumWidth: 220 },
+                                { title: qsTr("操作"), dataIndex: "action", width: 150, minimumWidth: 130 }
+                            ]
+                        }
+
+                        Component {
+                            id: rowActionDelegate
+                            Item {
+                                id: actionRoot
+                                property var options: ({})
+                                RowLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 6
+
+                                    FluButton {
+                                        text: qsTr("编辑")
+                                        onClicked: {
+                                            if (actionRoot.options && actionRoot.options.sourceIndex !== undefined) {
+                                                page.openEditor(actionRoot.options.sourceIndex)
+                                            }
+                                        }
+                                    }
+                                    FluButton {
+                                        text: qsTr("删除")
+                                        onClicked: {
+                                            if (actionRoot.options && actionRoot.options.sourceIndex !== undefined) {
+                                                page.removeRecord(actionRoot.options.sourceIndex)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

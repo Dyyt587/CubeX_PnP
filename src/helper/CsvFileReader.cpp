@@ -5,6 +5,7 @@
 #include <QDebug>
 #include <QFileInfo>
 #include <QDir>
+#include <QStandardPaths>
 
 static QString csvEscapeField(const QString &input)
 {
@@ -235,6 +236,39 @@ QStringList CsvFileReader::csvFilesInWorkingDirectory() const
         result.append(info.absoluteFilePath());
     }
     return result;
+}
+
+QString CsvFileReader::appDataFolderPath() const
+{
+    const QString base = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    const QString dataDir = QDir(base).filePath("data");
+    QDir().mkpath(dataDir);
+    return dataDir;
+}
+
+QString CsvFileReader::packageLibraryCsvPath() const
+{
+    return QDir(appDataFolderPath()).filePath("package_library.csv");
+}
+
+bool CsvFileReader::packageLibraryCsvExists() const
+{
+    QFileInfo info(packageLibraryCsvPath());
+    return info.exists() && info.isFile();
+}
+
+QVariantList CsvFileReader::readPackageLibraryCsv()
+{
+    if (!packageLibraryCsvExists()) {
+        lastError = QString("Package library file not found: %1").arg(packageLibraryCsvPath());
+        return QVariantList();
+    }
+    return readCsvFile(packageLibraryCsvPath());
+}
+
+bool CsvFileReader::writePackageLibraryCsv(const QVariantList &rows, const QStringList &headers)
+{
+    return writeCsvFile(packageLibraryCsvPath(), rows, headers);
 }
 
 QString CsvFileReader::getLastError() const
