@@ -13,6 +13,7 @@ FluContentPage {
 
     property string searchKeyword: ""
     property int visibleCount: 0
+    property bool importIncrementalMode: false
     signal packageDataChanged()
 
     function ok(text) {
@@ -177,6 +178,33 @@ FluContentPage {
     }
 
     function importCsv(path) {
+        importCsvWithMode(path, importIncrementalMode)
+    }
+
+    function pkgKey(name) {
+        return String(name || "").trim().toLowerCase()
+    }
+
+    function mergeRowsByPkg(rows) {
+        var merged = []
+        var indexByKey = {}
+        for (var i = 0; i < rows.length; i++) {
+            var row = normalizeRecord(rows[i])
+            if (row.pkg === "") {
+                continue
+            }
+            var key = pkgKey(row.pkg)
+            if (indexByKey[key] === undefined) {
+                indexByKey[key] = merged.length
+                merged.push(row)
+            } else {
+                merged[indexByKey[key]] = row
+            }
+        }
+        return merged
+    }
+
+    function importCsvWithMode(path, incrementalMode) {
         var rows = csvFileReader.readCsvFile(path)
         if (!rows || rows.length === undefined || rows.length === 0) {
             var err = csvFileReader.getLastError()
@@ -193,12 +221,46 @@ FluContentPage {
                 note: r.note || r.remark || r["备注"]
             }))
         }
-        loadFromArray(mapped, true)
+
+        var normalizedImportRows = mergeRowsByPkg(mapped)
+        var updated = 0
+        var added = 0
+
+        if (incrementalMode) {
+            var existingIndexByKey = {}
+            for (var e = 0; e < packageModel.count; e++) {
+                var existing = packageModel.get(e)
+                existingIndexByKey[pkgKey(existing.pkg)] = e
+            }
+
+            for (var m = 0; m < normalizedImportRows.length; m++) {
+                var incoming = normalizedImportRows[m]
+                var incomingKey = pkgKey(incoming.pkg)
+                if (existingIndexByKey[incomingKey] !== undefined) {
+                    packageModel.set(existingIndexByKey[incomingKey], incoming)
+                    updated++
+                } else {
+                    packageModel.append(incoming)
+                    existingIndexByKey[incomingKey] = packageModel.count - 1
+                    added++
+                }
+            }
+        } else {
+            loadFromArray(normalizedImportRows, false)
+            added = normalizedImportRows.length
+        }
+
+        packageDataChanged()
         packageStore.dataJson = JSON.stringify(modelToArray())
         if (!persistLibraryFile(true)) {
             return
         }
-        ok(qsTr("CSV 导入成功，并已覆盖保存到软件数据目录，共 ") + rows.length + qsTr(" 条"))
+
+        if (incrementalMode) {
+            ok(qsTr("CSV 增量导入成功：新增 ") + added + qsTr(" 条，覆盖 ") + updated + qsTr(" 条，并已保存到软件数据目录"))
+        } else {
+            ok(qsTr("CSV 覆盖导入成功：共 ") + added + qsTr(" 条（重名项已覆盖），并已保存到软件数据目录"))
+        }
     }
 
     function exportCsv(path) {
@@ -240,7 +302,7 @@ FluContentPage {
         id: importDialog
         title: qsTr("导入封装 CSV")
         nameFilters: [qsTr("CSV 文件 (*.csv)")]
-        onAccepted: page.importCsv(selectedFile)
+        onAccepted: page.importCsvWithMode(selectedFile, page.importIncrementalMode)
     }
 
     FileDialog {
@@ -323,7 +385,20 @@ FluContentPage {
 
                 FluButton { text: qsTr("新增"); onClicked: page.openEditor(-1) }
                 FluButton { text: qsTr("保存"); onClicked: page.saveLibrary() }
-                FluButton { text: qsTr("导入CSV"); onClicked: importDialog.open() }
+                FluButton {
+                    text: qsTr("覆盖导入CSV")
+                    onClicked: {
+                        page.importIncrementalMode = false
+                        importDialog.open()
+                    }
+                }
+                FluButton {
+                    text: qsTr("增量导入CSV")
+                    onClicked: {
+                        page.importIncrementalMode = true
+                        importDialog.open()
+                    }
+                }
                 FluButton { text: qsTr("导出CSV"); onClicked: exportDialog.open() }
                 FluButton {
                     text: qsTr("恢复默认")
