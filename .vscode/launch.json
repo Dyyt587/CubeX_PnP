@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch appCubeX_PnP (MinGW)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/Desktop_Qt_6_10_2_MinGW_64_bit-Debug/appCubeX_PnP.exe",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}/build/Desktop_Qt_6_10_2_MinGW_64_bit-Debug",
+      "environment": [
+        {
+          "name": "PATH",
+          "value": "C:\\Qt\\6.10.2\\mingw_64\\bin;C:\\Qt\\6.10.2\\mingw_64\\lib;C:\\Qt\\6.10.2\\mingw_64\\plugins;C:\\Qt\\Tools\\mingw1310_64\\bin;C:\\Users\\lzj\\Github\\OpenCV_MingW\\OpenCV4.11_mingw13.1.0\\x64\\mingw\\bin;${env:PATH}"
+        },
+        {
+          "name": "QT_PLUGIN_PATH",
+          "value": "C:\\Qt\\6.10.2\\mingw_64\\plugins"
+        },
+        {
+          "name": "QML2_IMPORT_PATH",
+          "value": "C:\\Qt\\6.10.2\\mingw_64\\qml"
+        }
+      ],
+      "externalConsole": true,
+      "MIMode": "gdb",
+      "miDebuggerPath": "C:/Qt/Tools/mingw1310_64/bin/gdb.exe"
+    }
+  ]
+}

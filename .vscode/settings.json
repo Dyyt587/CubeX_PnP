@@ -1,0 +1,14 @@
+{
+  "cmake.buildDirectory": "${workspaceFolder}/build/Desktop_Qt_6_10_2_MinGW_64_bit-Debug",
+  "cmake.generator": "Ninja",
+  "cmake.configureSettings": {
+    "CMAKE_PREFIX_PATH": "C:/Qt/6.10.2/mingw_64",
+    "CMAKE_BUILD_TYPE": "Debug",
+    "CMAKE_TOOLCHAIN_FILE": "C:/Qt/6.10.2/mingw_64/lib/cmake/Qt6/qt.toolchain.cmake"
+  },
+  "cmake.environment": {
+    "PATH": "${env:PATH};C:\\Qt\\6.10.2\\mingw_64\\bin;C:\\Qt\\6.10.2\\mingw_64\\lib;C:\\Qt\\6.10.2\\mingw_64\\plugins;C:\\Qt\\Tools\\mingw1310_64\\bin;C:\\Users\\lzj\\Github\\OpenCV_MingW\\OpenCV4.11_mingw13.1.0\\x64\\mingw\\bin",
+    "QT_PLUGIN_PATH": "C:\\Qt\\6.10.2\\mingw_64\\plugins",
+    "QML2_IMPORT_PATH": "C:\\Qt\\6.10.2\\mingw_64\\qml"
+  }
+}

@@ -15,6 +15,11 @@ FluContentPage {
     property int visibleCount: 0
     property bool importIncrementalMode: false
     signal packageDataChanged()
+    property string debugMessage: ""
+
+    function debug(msg) {
+        debugMessage = msg !== undefined ? String(msg) : ""
+    }
 
     function ok(text) {
         showSuccess(text)
@@ -61,6 +66,7 @@ FluContentPage {
             packageModel.append(row)
         }
         packageDataChanged()
+        if (typeof packageTableRoot !== 'undefined' && packageTableRoot.rebuildTableData) packageTableRoot.rebuildTableData()
     }
 
     function saveLibrary() {
@@ -120,6 +126,7 @@ FluContentPage {
             packageModel.append(defaultData[i])
         }
         packageDataChanged()
+        if (typeof packageTableRoot !== 'undefined' && packageTableRoot.rebuildTableData) packageTableRoot.rebuildTableData()
         if (saveAfter) {
             packageStore.dataJson = JSON.stringify(modelToArray())
             persistLibraryFile(false)
@@ -161,6 +168,7 @@ FluContentPage {
             packageModel.append(row)
         }
         packageDataChanged()
+        if (typeof packageTableRoot !== 'undefined' && packageTableRoot.rebuildTableData) packageTableRoot.rebuildTableData()
         packageStore.dataJson = JSON.stringify(modelToArray())
         persistLibraryFile(false)
         ok(qsTr("已保存封装记录"))
@@ -172,6 +180,7 @@ FluContentPage {
         }
         packageModel.remove(index)
         packageDataChanged()
+        if (typeof packageTableRoot !== 'undefined' && packageTableRoot.rebuildTableData) packageTableRoot.rebuildTableData()
         packageStore.dataJson = JSON.stringify(modelToArray())
         persistLibraryFile(false)
         ok(qsTr("已删除封装记录"))
@@ -251,6 +260,7 @@ FluContentPage {
         }
 
         packageDataChanged()
+        if (typeof packageTableRoot !== 'undefined' && packageTableRoot.rebuildTableData) packageTableRoot.rebuildTableData()
         packageStore.dataJson = JSON.stringify(modelToArray())
         if (!persistLibraryFile(true)) {
             return
@@ -363,6 +373,34 @@ FluContentPage {
             anchors.fill: parent
             spacing: 8
 
+                Timer {
+                    id: debugTimer
+                    interval: 3000
+                    repeat: false
+                    onTriggered: page.debug("")
+                }
+
+                Rectangle {
+                    id: debugOverlay
+                    width: 360
+                    height: 32
+                    radius: 6
+                    color: FluTheme.dark ? Qt.rgba(0,0,0,0.7) : Qt.rgba(0,0,0,0.08)
+                    anchors {
+                        top: parent.top
+                        right: parent.right
+                        topMargin: 6
+                        rightMargin: 6
+                    }
+                    visible: page.debugMessage !== ""
+                    z: 9999
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 6
+                        FluText { text: page.debugMessage; elide: Text.ElideRight }
+                    }
+                }
+
             FluText {
                 text: qsTr("常见 PCB 元件封装库（尺寸单位：mm）")
                 font: FluTextStyle.Subtitle
@@ -457,7 +495,12 @@ FluContentPage {
                                 size: String(item.size || ""),
                                 category: String(item.category || ""),
                                 note: String(item.note || ""),
-                                action: packageTableView.customItem(rowActionDelegate, { sourceIndex: i })
+                                action: packageTableView.customItem(rowActionDelegate, {
+                                    sourceIndex: i,
+                                    pkg: pkg,
+                                    onEdit: function() { Qt.callLater(function() { page.openEditor(i) }) },
+                                    onDelete: function() { Qt.callLater(function() { page.removeRecord(i) }) }
+                                })
                             })
                         }
                         page.visibleCount = count
@@ -514,16 +557,58 @@ FluContentPage {
                                     FluButton {
                                         text: qsTr("编辑")
                                         onClicked: {
-                                            if (actionRoot.options && actionRoot.options.sourceIndex !== undefined) {
-                                                page.openEditor(actionRoot.options.sourceIndex)
+                                            console.log("[PackageLibrary] Edit clicked, options=", actionRoot.options)
+                                            var idx = -1
+                                            if (actionRoot.options && actionRoot.options.sourceIndex !== undefined) idx = actionRoot.options.sourceIndex
+                                            else if (typeof rowModel !== 'undefined' && rowModel && rowModel.sourceIndex !== undefined) idx = rowModel.sourceIndex
+                                            if (idx === -1 && actionRoot.options && actionRoot.options.pkg) {
+                                                var name = String(actionRoot.options.pkg || "").trim().toLowerCase()
+                                                for (var s = 0; s < packageModel.count; s++) {
+                                                    if (String(packageModel.get(s).pkg || "").trim().toLowerCase() === name) { idx = s; break }
+                                                }
+                                                console.log("[PackageLibrary] fallback lookup by options.pkg=", name, "-> idx=", idx)
+                                            }
+                                            if (actionRoot.options && actionRoot.options.onEdit) {
+                                                console.log("[PackageLibrary] calling options.onEdit()")
+                                                try { actionRoot.options.onEdit() } catch(e) { console.log("[PackageLibrary] options.onEdit error:", e); page.debug("onEdit error: " + e); debugTimer.start() }
+                                            } else if (idx !== -1) {
+                                                console.log("[PackageLibrary] Opening editor for sourceIndex", idx)
+                                                page.debug(qsTr("编辑索引：") + idx)
+                                                debugTimer.start()
+                                                Qt.callLater(function() { try { page.openEditor(idx) } catch(e) { console.log("[PackageLibrary] openEditor error:", e); page.debug("openEditor error: " + e); debugTimer.start() } })
+                                            } else {
+                                                console.log("[PackageLibrary] Edit index not found, options=", actionRoot.options)
+                                                page.debug(qsTr("编辑索引未找到"))
+                                                debugTimer.start()
                                             }
                                         }
                                     }
                                     FluButton {
                                         text: qsTr("删除")
                                         onClicked: {
-                                            if (actionRoot.options && actionRoot.options.sourceIndex !== undefined) {
-                                                page.removeRecord(actionRoot.options.sourceIndex)
+                                            console.log("[PackageLibrary] Delete clicked, options=", actionRoot.options)
+                                            var idx = -1
+                                            if (actionRoot.options && actionRoot.options.sourceIndex !== undefined) idx = actionRoot.options.sourceIndex
+                                            else if (typeof rowModel !== 'undefined' && rowModel && rowModel.sourceIndex !== undefined) idx = rowModel.sourceIndex
+                                            if (idx === -1 && actionRoot.options && actionRoot.options.pkg) {
+                                                var name2 = String(actionRoot.options.pkg || "").trim().toLowerCase()
+                                                for (var t = 0; t < packageModel.count; t++) {
+                                                    if (String(packageModel.get(t).pkg || "").trim().toLowerCase() === name2) { idx = t; break }
+                                                }
+                                                console.log("[PackageLibrary] fallback lookup by options.pkg=", name2, "-> idx=", idx)
+                                            }
+                                            if (actionRoot.options && actionRoot.options.onDelete) {
+                                                console.log("[PackageLibrary] calling options.onDelete()")
+                                                try { actionRoot.options.onDelete() } catch(e) { console.log("[PackageLibrary] options.onDelete error:", e); page.debug("onDelete error: " + e); debugTimer.start() }
+                                            } else if (idx !== -1) {
+                                                console.log("[PackageLibrary] Removing sourceIndex", idx)
+                                                page.debug(qsTr("删除索引：") + idx)
+                                                debugTimer.start()
+                                                Qt.callLater(function() { try { page.removeRecord(idx) } catch(e) { console.log("[PackageLibrary] removeRecord error:", e); page.debug("removeRecord error: " + e); debugTimer.start() } })
+                                            } else {
+                                                console.log("[PackageLibrary] Delete index not found, options=", actionRoot.options)
+                                                page.debug(qsTr("删除索引未找到"))
+                                                debugTimer.start()
                                             }
                                         }
                                     }
