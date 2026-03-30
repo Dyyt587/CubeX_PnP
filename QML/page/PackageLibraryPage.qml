@@ -1,5 +1,3 @@
-pragma ComponentBehavior: Bound
-
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
@@ -175,7 +173,10 @@ FluContentPage {
     }
 
     function removeRecord(index) {
+        console.log("removeRecord called with index: " + index)
+        debug("Attempting to remove record at index: " + index)
         if (index < 0 || index >= packageModel.count) {
+            warn("Invalid index: " + index)
             return
         }
         packageModel.remove(index)
@@ -489,19 +490,20 @@ FluContentPage {
                                 continue
                             }
                             count++
-                            rows.push({
-                                sourceIndex: i,
-                                pkg: pkg,
-                                size: String(item.size || ""),
-                                category: String(item.category || ""),
-                                note: String(item.note || ""),
-                                action: packageTableView.customItem(rowActionDelegate, {
-                                    sourceIndex: i,
-                                    pkg: pkg,
-                                    onEdit: function() { Qt.callLater(function() { page.openEditor(i) }) },
-                                    onDelete: function() { Qt.callLater(function() { page.removeRecord(i) }) }
+                            // 用立即执行函数固定 i，避免闭包捕获循环变量
+                            ;(function(idx, pkgName) {
+                                rows.push({
+                                    sourceIndex: idx,
+                                    pkg: pkgName,
+                                    size: String(item.size || ""),
+                                    category: String(item.category || ""),
+                                    note: String(item.note || ""),
+                                    action: packageTableView.customItem(rowActionDelegate, {
+                                        sourceIndex: idx,
+                                        pkg: pkgName
+                                    })
                                 })
-                            })
+                            })(i, pkg)
                         }
                         page.visibleCount = count
                         packageTableView.dataSource = rows
@@ -548,8 +550,8 @@ FluContentPage {
                         Component {
                             id: rowActionDelegate
                             Item {
-                                id: actionRoot
-                                property var options: ({})
+                                // 不声明 options 属性，直接从 FluLoader 的 context 读取
+                                // （与 HomePageTableDelegates.qml 的模式一致）
                                 RowLayout {
                                     anchors.centerIn: parent
                                     spacing: 6
@@ -557,58 +559,18 @@ FluContentPage {
                                     FluButton {
                                         text: qsTr("编辑")
                                         onClicked: {
-                                            console.log("[PackageLibrary] Edit clicked, options=", actionRoot.options)
-                                            var idx = -1
-                                            if (actionRoot.options && actionRoot.options.sourceIndex !== undefined) idx = actionRoot.options.sourceIndex
-                                            else if (typeof rowModel !== 'undefined' && rowModel && rowModel.sourceIndex !== undefined) idx = rowModel.sourceIndex
-                                            if (idx === -1 && actionRoot.options && actionRoot.options.pkg) {
-                                                var name = String(actionRoot.options.pkg || "").trim().toLowerCase()
-                                                for (var s = 0; s < packageModel.count; s++) {
-                                                    if (String(packageModel.get(s).pkg || "").trim().toLowerCase() === name) { idx = s; break }
-                                                }
-                                                console.log("[PackageLibrary] fallback lookup by options.pkg=", name, "-> idx=", idx)
-                                            }
-                                            if (actionRoot.options && actionRoot.options.onEdit) {
-                                                console.log("[PackageLibrary] calling options.onEdit()")
-                                                try { actionRoot.options.onEdit() } catch(e) { console.log("[PackageLibrary] options.onEdit error:", e); page.debug("onEdit error: " + e); debugTimer.start() }
-                                            } else if (idx !== -1) {
-                                                console.log("[PackageLibrary] Opening editor for sourceIndex", idx)
-                                                page.debug(qsTr("编辑索引：") + idx)
-                                                debugTimer.start()
-                                                Qt.callLater(function() { try { page.openEditor(idx) } catch(e) { console.log("[PackageLibrary] openEditor error:", e); page.debug("openEditor error: " + e); debugTimer.start() } })
-                                            } else {
-                                                console.log("[PackageLibrary] Edit index not found, options=", actionRoot.options)
-                                                page.debug(qsTr("编辑索引未找到"))
-                                                debugTimer.start()
+                                            var idx = options ? options.sourceIndex : -1
+                                            if (idx !== undefined && idx >= 0) {
+                                                page.openEditor(idx)
                                             }
                                         }
                                     }
                                     FluButton {
                                         text: qsTr("删除")
                                         onClicked: {
-                                            console.log("[PackageLibrary] Delete clicked, options=", actionRoot.options)
-                                            var idx = -1
-                                            if (actionRoot.options && actionRoot.options.sourceIndex !== undefined) idx = actionRoot.options.sourceIndex
-                                            else if (typeof rowModel !== 'undefined' && rowModel && rowModel.sourceIndex !== undefined) idx = rowModel.sourceIndex
-                                            if (idx === -1 && actionRoot.options && actionRoot.options.pkg) {
-                                                var name2 = String(actionRoot.options.pkg || "").trim().toLowerCase()
-                                                for (var t = 0; t < packageModel.count; t++) {
-                                                    if (String(packageModel.get(t).pkg || "").trim().toLowerCase() === name2) { idx = t; break }
-                                                }
-                                                console.log("[PackageLibrary] fallback lookup by options.pkg=", name2, "-> idx=", idx)
-                                            }
-                                            if (actionRoot.options && actionRoot.options.onDelete) {
-                                                console.log("[PackageLibrary] calling options.onDelete()")
-                                                try { actionRoot.options.onDelete() } catch(e) { console.log("[PackageLibrary] options.onDelete error:", e); page.debug("onDelete error: " + e); debugTimer.start() }
-                                            } else if (idx !== -1) {
-                                                console.log("[PackageLibrary] Removing sourceIndex", idx)
-                                                page.debug(qsTr("删除索引：") + idx)
-                                                debugTimer.start()
-                                                Qt.callLater(function() { try { page.removeRecord(idx) } catch(e) { console.log("[PackageLibrary] removeRecord error:", e); page.debug("removeRecord error: " + e); debugTimer.start() } })
-                                            } else {
-                                                console.log("[PackageLibrary] Delete index not found, options=", actionRoot.options)
-                                                page.debug(qsTr("删除索引未找到"))
-                                                debugTimer.start()
+                                            var idx = options ? options.sourceIndex : -1
+                                            if (idx !== undefined && idx >= 0) {
+                                                page.removeRecord(idx)
                                             }
                                         }
                                     }
