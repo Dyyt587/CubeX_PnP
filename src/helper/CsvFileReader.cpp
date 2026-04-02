@@ -6,6 +6,60 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QStandardPaths>
+#include <QByteArray>
+
+static QString decodeCsvText(const QByteArray &bytes)
+{
+    qDebug() << "[CSV] Decoding" << bytes.size() << "bytes";
+    
+    if (bytes.size() >= 3
+        && static_cast<unsigned char>(bytes[0]) == 0xEF
+        && static_cast<unsigned char>(bytes[1]) == 0xBB
+        && static_cast<unsigned char>(bytes[2]) == 0xBF) {
+        qDebug() << "[CSV] Detected UTF-8 with BOM";
+        return QString::fromUtf8(bytes.constData() + 3, bytes.size() - 3);
+    }
+
+    if (bytes.size() >= 2
+        && static_cast<unsigned char>(bytes[0]) == 0xFF
+        && static_cast<unsigned char>(bytes[1]) == 0xFE) {
+        qDebug() << "[CSV] Detected UTF-16LE";
+        // For UTF-16LE: BOM (2 bytes) + actual content
+        int payloadSize = bytes.size() - 2;
+        // Ensure even number of bytes (UTF-16 = 2 bytes per char)
+        if (payloadSize % 2 == 1) {
+            payloadSize--; // Drop last byte if odd
+            qDebug() << "[CSV] ⚠️  Dropped odd byte from UTF-16LE payload";
+        }
+        
+        // Decode UTF-16LE, but remove any NULL terminators that might cause truncation
+        QString result = QString::fromUtf16(reinterpret_cast<const char16_t *>(bytes.constData() + 2), payloadSize / 2);
+        
+        // Remove embedded NULL characters which can break parsing
+        result.replace(QChar('\0'), "");
+        
+        return result;
+    }
+
+    if (bytes.size() >= 2
+        && static_cast<unsigned char>(bytes[0]) == 0xFE
+        && static_cast<unsigned char>(bytes[1]) == 0xFF) {
+        qDebug() << "[CSV] Detected UTF-16BE";
+        const QByteArray payload = bytes.mid(2);
+        QByteArray swapped;
+        swapped.resize(payload.size() - (payload.size() % 2));  // Ensure even size
+        for (int i = 0; i + 1 < swapped.size(); i += 2) {
+            swapped[i] = payload[i + 1];
+            swapped[i + 1] = payload[i];
+        }
+        QString result = QString::fromUtf16(reinterpret_cast<const char16_t *>(swapped.constData()), swapped.size() / 2);
+        result.replace(QChar('\0'), "");
+        return result;
+    }
+
+    qDebug() << "[CSV] Assuming UTF-8 (no BOM)";
+    return QString::fromUtf8(bytes);
+}
 
 static QString csvEscapeField(const QString &input)
 {
@@ -105,27 +159,72 @@ QVariantList CsvFileReader::readCsvFile(const QString &filePath)
         return QVariantList();
     }
 
-    QTextStream in(&file);
-    in.setEncoding(QStringConverter::Utf8);
-
-    // Read header line
-    QString headerLine = in.readLine();
-    if (headerLine.isEmpty()) {
+    const QByteArray rawBytes = file.readAll();
+    const QString content = decodeCsvText(rawBytes);
+    
+    // 优先尝试使用 \r\n 分割（Windows 格式）
+    QStringList contentLines;
+    if (content.contains("\r\n")) {
+        contentLines = content.split("\r\n");
+        qDebug() << "[CSV] Split using \\r\\n (Windows format)";
+    } else {
+        contentLines = content.split('\n');
+        qDebug() << "[CSV] Split using \\n (Unix format)";
+    }
+    
+    // Remove empty lines only after the header
+    QStringList filteredLines;
+    for (const QString &line : contentLines) {
+        QString trimmedLine = line.trimmed();
+        if (!trimmedLine.isEmpty()) {
+            filteredLines.append(trimmedLine);
+        }
+    }
+    contentLines = filteredLines;
+    
+    qDebug() << "[CSV] Total lines after split:" << contentLines.length();
+    
+    if (contentLines.isEmpty()) {
         lastError = "File is empty";
         file.close();
         emit parseError(lastError);
         return QVariantList();
     }
 
+    QString headerLine = contentLines.at(0).trimmed();
+    if (headerLine.isEmpty()) {
+        lastError = "File is empty";
+        file.close();
+        emit parseError(lastError);
+        return QVariantList();
+    }
+    
+    contentLines.removeFirst();  // 移除表头行
+
     QStringList headers = parseCSVLine(headerLine);
+    qDebug() << "[CSV] Headers (" << headers.length() << "):" << headers;
+    qDebug() << "[CSV] Data rows count:" << contentLines.length();
+
+    // Find designator column index
+    int designatorIndex = -1;
+    for (int h = 0; h < headers.length(); ++h) {
+        if (headers[h].toUpper().contains("DESIGNATOR") || headers[h].toUpper().contains("NAME")) {
+            designatorIndex = h;
+            break;
+        }
+    }
+    qDebug() << "[CSV] Designator column index:" << designatorIndex;
 
     // Stream parsing to avoid loading huge files fully into memory.
     QVariantList result;
     int rowIndex = 1;
     const int maxRows = 200000;
-    while (!in.atEnd()) {
-        const QString line = in.readLine().trimmed();
+    QSet<QString> seenDesignators;  // Track to detect if deduplication is happening
+    
+    for (const QString &rawLine : contentLines) {
+        const QString line = rawLine.trimmed();
         if (line.isEmpty()) {
+            qDebug() << "[CSV] Skipping empty line at index" << rowIndex;
             continue;
         }
 
@@ -138,8 +237,24 @@ QVariantList CsvFileReader::readCsvFile(const QString &filePath)
         for (int j = 0; j < headers.length() && j < fields.length(); ++j) {
             row[headers[j]] = fields[j].trimmed();
         }
-        row["rowIndex"] = rowIndex++;
+        row["rowIndex"] = rowIndex;
+        
+        // Log designator to detect duplicates
+        QString designator = designatorIndex >= 0 && designatorIndex < fields.length() ? fields[designatorIndex] : "";
+        if (!designator.isEmpty()) {
+            if (seenDesignators.contains(designator)) {
+                qDebug() << "[CSV] WARNING: Duplicate designator found:" << designator << "at row" << rowIndex;
+            }
+            seenDesignators.insert(designator);
+        }
+        
         result.append(row);
+        
+        if (rowIndex <= 5 || rowIndex % 10 == 0) {
+            qDebug() << "[CSV] Row" << rowIndex << "designator:" << designator << "fields:" << fields.mid(0, qMin(3, fields.length()));
+        }
+        
+        rowIndex++;
 
         if (result.size() >= maxRows) {
             lastError = QString("CSV rows exceed limit (%1)").arg(maxRows);
@@ -154,6 +269,8 @@ QVariantList CsvFileReader::readCsvFile(const QString &filePath)
     if (result.isEmpty()) {
         lastError = "No data rows found";
     }
+    
+    qDebug() << "[CSV] Parse complete: rows=" << result.length() << "headers=" << headers.length();
 
     emit fileParsed(result);
     return result;

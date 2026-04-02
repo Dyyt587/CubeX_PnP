@@ -83,6 +83,60 @@ FluContentPage{
         return Number(match[0])
     }
 
+    function normalizeCsvFieldKey(key) {
+        return String(key === undefined || key === null ? "" : key).replace(/[\s_-]/g, "").toLowerCase()
+    }
+
+    function readCsvField(row, aliases) {
+        if (!row) {
+            return ""
+        }
+        var normalizedAliases = []
+        for (var i = 0; i < aliases.length; i++) {
+            normalizedAliases.push(normalizeCsvFieldKey(aliases[i]))
+        }
+
+        for (var aliasIndex = 0; aliasIndex < aliases.length; aliasIndex++) {
+            var directValue = row[aliases[aliasIndex]]
+            if (directValue !== undefined && directValue !== null && String(directValue).trim() !== "") {
+                return directValue
+            }
+        }
+
+        for (var key in row) {
+            if (!Object.prototype.hasOwnProperty.call(row, key)) {
+                continue
+            }
+            var normalizedKey = normalizeCsvFieldKey(key)
+            for (var j = 0; j < normalizedAliases.length; j++) {
+                if (normalizedKey === normalizedAliases[j]) {
+                    var value = row[key]
+                    if (value !== undefined && value !== null && String(value).trim() !== "") {
+                        return value
+                    }
+                }
+            }
+        }
+
+        return ""
+    }
+
+    function parseTruthyValue(rawValue) {
+        if (rawValue === undefined || rawValue === null) {
+            return false
+        }
+        var text = String(rawValue).trim().toLowerCase()
+        return text === "yes" || text === "y" || text === "true" || text === "1" || text === "x" || text === "on"
+    }
+
+    function isTopLayerValue(rawValue) {
+        if (rawValue === undefined || rawValue === null) {
+            return false
+        }
+        var text = String(rawValue).trim().toUpperCase()
+        return text === "T" || text.indexOf("TOP") !== -1 || text.indexOf("COMPONENT") !== -1
+    }
+
     // FluSpinBox 以整数工作，这里用 0.01mm 精度做换算。
     function offsetMmToSpin(valueMm) {
         return Math.round(valueMm * 100)
@@ -117,6 +171,100 @@ FluContentPage{
         }
     }
 
+    // SMD 封装尺寸映射表（常见尺寸，单位mm）
+    function getPackageSizeMm(packageName) {
+        if (!packageName) {
+            return { width: 3.0, height: 1.5 }  // 默认 0603
+        }
+        
+        // 从封装库查询
+        var packageLib = getPackageLibraryMap()
+        var normalizedName = String(packageName).toUpperCase().replace(/[\s_-]/g, "")
+        
+        // 精确匹配
+        if (packageLib[normalizedName]) {
+            return packageLib[normalizedName]
+        }
+        
+        // 模糊匹配（部分字符串）
+        for (var key in packageLib) {
+            if (normalizedName.indexOf(key) !== -1 || key.indexOf(normalizedName) !== -1) {
+                return packageLib[key]
+            }
+        }
+        
+        // 未找到封装 - 返回默认值但在调用处会显示warn
+        return { width: 3.0, height: 1.5 }  // 默认值 (0603)
+    }
+    
+    function getPackageLibraryMap() {
+        // 外部封装库 (可以从文件系统读取，这里使用内置库)
+        return {
+            "0201": { width: 0.6, height: 0.3 },
+            "0402": { width: 1.0, height: 0.5 },
+            "0603": { width: 1.6, height: 0.8 },
+            "0805": { width: 2.0, height: 1.25 },
+            "1206": { width: 3.2, height: 1.6 },
+            "1210": { width: 3.2, height: 2.5 },
+            "1812": { width: 4.5, height: 3.2 },
+            "2010": { width: 5.0, height: 2.5 },
+            "2512": { width: 6.35, height: 3.2 },
+            "C0201": { width: 0.6, height: 0.3 },
+            "C0402": { width: 1.0, height: 0.5 },
+            "C0603": { width: 1.6, height: 0.8 },
+            "C0805": { width: 2.0, height: 1.25 },
+            "C1206": { width: 3.2, height: 1.6 },
+            "C1210": { width: 3.2, height: 2.5 },
+            "C1812": { width: 4.5, height: 3.2 },
+            "C2010": { width: 5.0, height: 2.5 },
+            "C2512": { width: 6.35, height: 3.2 },
+            "R0201": { width: 0.6, height: 0.3 },
+            "R0402": { width: 1.0, height: 0.5 },
+            "R0603": { width: 1.6, height: 0.8 },
+            "R0805": { width: 2.0, height: 1.25 },
+            "R1206": { width: 3.2, height: 1.6 },
+            "R1210": { width: 3.2, height: 2.5 },
+            "R1812": { width: 4.5, height: 3.2 },
+            "R2010": { width: 5.0, height: 2.5 },
+            "R2512": { width: 6.35, height: 3.2 },
+            "SOT23": { width: 2.9, height: 1.3 },
+            "SOT25": { width: 2.8, height: 1.3 },
+            "SOT53": { width: 2.9, height: 1.3 },
+            "TSSOP20": { width: 6.5, height: 4.4 },
+            "DIP8": { width: 9.81, height: 6.35 },
+            "DIP14": { width: 19.81, height: 6.35 },
+            "DIP16": { width: 19.81, height: 7.62 },
+            "QFP32": { width: 7.0, height: 7.0 },
+            "QFP48": { width: 9.0, height: 9.0 },
+            "BGA": { width: 5.0, height: 5.0 },
+            // 添加更多常见封装
+            "LED0603": { width: 1.6, height: 0.8 },
+            "LEDRDBLUERED0603": { width: 1.6, height: 0.8 },
+            "SOD123": { width: 2.7, height: 1.8 },
+            "SMFD5CA": { width: 2.7, height: 1.8 }
+        }
+    }
+
+    // 判断数据点是否在四个角落（离边缘 < cornerThreshold）
+    function countCorneredPoints(points, cornerThreshold) {
+        if (!points || points.length === 0) {
+            return 0
+        }
+        var count = 0
+        for (var i = 0; i < points.length; i++) {
+            var p = points[i]
+            var distToLeftEdge = p.xNorm
+            var distToRightEdge = 1 - p.xNorm
+            var distToBottomEdge = p.yNorm
+            var distToTopEdge = 1 - p.yNorm
+            var minDistToEdge = Math.min(distToLeftEdge, distToRightEdge, distToBottomEdge, distToTopEdge)
+            if (minDistToEdge < cornerThreshold) {
+                count++
+            }
+        }
+        return count
+    }
+
     function placementRowsForPreview() {
         var rows = mainWindow.homeTableData || []
         if (rows.length > 0) {
@@ -130,12 +278,17 @@ FluContentPage{
 
     function rebuildPlacementPreviewPoints() {
         var rows = placementRowsForPreview()
+        console.log("[POINTS] rebuildPlacementPreviewPoints: rows available=" + rows.length + 
+                    " boardSize=(" + placementObjectWidthMm.toFixed(2) + "x" + placementObjectHeightMm.toFixed(2) + ")")
         var nextPoints = []
         var statsXMin = Number.POSITIVE_INFINITY
         var statsXMax = Number.NEGATIVE_INFINITY
         var statsYMin = Number.POSITIVE_INFINITY
         var statsYMax = Number.NEGATIVE_INFINITY
         var hasBoardSize = placementObjectWidthMm > 0.000001 && placementObjectHeightMm > 0.000001
+        var layerFilteredCount = 0
+        var selectedFilteredCount = 0
+        var coordinateFailCount = 0
 
         for (var s = 0; s < rows.length; s++) {
             var statRow = rows[s]
@@ -155,6 +308,8 @@ FluContentPage{
 
         var tolerance = 0.15
         var mode = hasBoardSize ? (placementBottomLeftYPositive ? "bottomLeftUpPositive" : "bottomLeftUpNegative") : "fitRange"
+        var autoDetectMode = mode  // 将在 hasBoardSize 时自动探测
+        
         if (isFinite(statsXMin) && isFinite(statsXMax) && isFinite(statsYMin) && isFinite(statsYMax)) {
             var xInObjectRange = statsXMin >= -placementObjectWidthMm * tolerance && statsXMax <= placementObjectWidthMm * (1 + tolerance)
             var yInNegativeRange = statsYMin >= -placementObjectHeightMm * (1 + tolerance) && statsYMax <= placementObjectHeightMm * tolerance
@@ -162,8 +317,55 @@ FluContentPage{
             var xInCenterRange = statsXMin >= -placementObjectWidthMm * (0.5 + tolerance) && statsXMax <= placementObjectWidthMm * (0.5 + tolerance)
             var yInCenterRange = statsYMin >= -placementObjectHeightMm * (0.5 + tolerance) && statsYMax <= placementObjectHeightMm * (0.5 + tolerance)
 
-            // 有板尺寸时优先按左下原点，并由开关决定 y 正方向。
-            if (hasBoardSize) {
+            // 如果有板子尺寸范围，尝试自动识别 Y 轴方向（选择数据分布更均匀的方向）
+            if (hasBoardSize && xInObjectRange) {
+                // 先构建两种模式的临时点集用于分析
+                var tempPointsPositive = []
+                var tempPointsNegative = []
+                for (var testI = 0; testI < rows.length; testI++) {
+                    var testRow = rows[testI]
+                    if (!testRow || !isTopLayerValue(testRow.layer) || !testRow.selected) {
+                        continue
+                    }
+                    var testXMm = parseCoordinateMm(testRow.address)
+                    var testYMm = parseCoordinateMm(testRow.nickname)
+                    if (!isFinite(testXMm) || !isFinite(testYMm)) {
+                        continue
+                    }
+                    var testAdjustedX = testXMm + placementOffsetXMm
+                    var testAdjustedY = testYMm + placementOffsetYMm
+                    
+                    // 计算在 bottomLeftUpPositive 模式下的归一化坐标
+                    var posNormX = testAdjustedX / placementObjectWidthMm
+                    var posNormY = 1 - (testAdjustedY / placementObjectHeightMm)
+                    posNormX = Math.max(0, Math.min(1, posNormX))
+                    posNormY = Math.max(0, Math.min(1, posNormY))
+                    tempPointsPositive.push({ xNorm: posNormX, yNorm: posNormY })
+                    
+                    // 计算在 bottomLeftUpNegative 模式下的归一化坐标（兼容历史负Y数据）
+                    var negNormX = testAdjustedX / placementObjectWidthMm
+                    var negNormY = -testAdjustedY / placementObjectHeightMm
+                    negNormX = Math.max(0, Math.min(1, negNormX))
+                    negNormY = Math.max(0, Math.min(1, negNormY))
+                    tempPointsNegative.push({ xNorm: negNormX, yNorm: negNormY })
+                }
+                
+                // 计算两种模式下角落点的数量
+                var cornerThreshold = 0.25
+                var corneredPositive = countCorneredPoints(tempPointsPositive, cornerThreshold)
+                var corneredNegative = countCorneredPoints(tempPointsNegative, cornerThreshold)
+                
+                console.log("[MODE_DETECT] positive mode corners=" + corneredPositive + " negative mode corners=" + corneredNegative + " total=" + tempPointsPositive.length)
+                
+                // 选择角落点较少的模式（即数据分布更均匀）
+                if (tempPointsPositive.length > 0) {
+                    var positiveRatio = corneredPositive / tempPointsPositive.length
+                    var negativeRatio = corneredNegative / tempPointsNegative.length
+                    autoDetectMode = positiveRatio < negativeRatio ? "bottomLeftUpPositive" : "bottomLeftUpNegative"
+                    console.log("[MODE_DETECT] Selected: " + autoDetectMode + " (positive ratio=" + positiveRatio.toFixed(2) + " negative ratio=" + negativeRatio.toFixed(2) + ")")
+                }
+                mode = autoDetectMode
+            } else if (hasBoardSize) {
                 if (xInObjectRange) {
                     mode = placementBottomLeftYPositive ? "bottomLeftUpPositive" : "bottomLeftUpNegative"
                 } else if (xInCenterRange && yInCenterRange) {
@@ -184,17 +386,20 @@ FluContentPage{
                 continue
             }
 
-            var layerText = row.layer === undefined || row.layer === null ? "" : String(row.layer).trim().toUpperCase()
-            if (layerText !== "T") {
+            if (!isTopLayerValue(row.layer)) {
+                layerFilteredCount++
                 continue
             }
             if (!row.selected) {
+                selectedFilteredCount++
                 continue
             }
 
             var xMm = parseCoordinateMm(row.address)
             var yMm = parseCoordinateMm(row.nickname)
             if (!isFinite(xMm) || !isFinite(yMm)) {
+                if (i < 3) console.log("[POINTS] Row" + i + ": invalid coords - xMm=" + xMm + " yMm=" + yMm + " address='" + row.address + "' nickname='" + row.nickname + "'")
+                coordinateFailCount++
                 continue
             }
 
@@ -225,17 +430,38 @@ FluContentPage{
 
             normalizedX = Math.max(0, Math.min(1, normalizedX))
             normalizedY = Math.max(0, Math.min(1, normalizedY))
+            
+            // 获取该元件的封装尺寸（将 mm 转换为相对于板子的比例）
+            var packageSize = getPackageSizeMm(row.avatar)  // avatar 是封装字段
+            var packageWidthNorm = packageSize.width / placementObjectWidthMm
+            var packageHeightNorm = packageSize.height / placementObjectHeightMm
+            
+            if (nextPoints.length < 3) {
+                console.log("[POINTS] Point " + nextPoints.length + ": raw=(" + xMm.toFixed(3) + "," + yMm.toFixed(3) + ") mode=" + mode + 
+                            " norm=(" + normalizedX.toFixed(3) + "," + normalizedY.toFixed(3) + ") pkg=" + row.avatar + " size=(" + packageWidthNorm.toFixed(3) + "x" + packageHeightNorm.toFixed(3) + ")")
+            }
             nextPoints.push({
                 xNorm: normalizedX,
                 yNorm: normalizedY,
-                key: row._key || ("p_" + i)
+                key: row._key || ("p_" + i),
+                packageWidthNorm: packageWidthNorm,
+                packageHeightNorm: packageHeightNorm,
+                name: row.name,
+                packageName: row.avatar,
+                rotationAngle: parseFloat(row.longstring) || 0,  // 从rotation列获取旋转角度
+                absMmX: xMm,
+                absMmY: yMm
             })
         }
+        console.log("[POINTS] Final result: points=" + nextPoints.length + " layerFiltered=" + layerFilteredCount + 
+                    " selectedFiltered=" + selectedFilteredCount + " coordFailed=" + coordinateFailCount + " totalRows=" + rows.length)
+        console.log("[POINTS] placementPreviewPoints set, attempting to access: " + (placementPreviewPoints ? placementPreviewPoints.length : "null"))
         placementPreviewPoints = nextPoints
     }
 
     function warn(text) {
         showWarning(text)
+        warnClearTimer.restart()  // 启动 2 秒后自动清除计时器
     }
 
     function ok(text) {
@@ -504,6 +730,7 @@ FluContentPage{
     function importFile(filePath) {
         var fileUrl = filePath ? filePath.toString() : ""
         var fileName = fileUrl.split("/").pop()
+        console.log("[IMPORT] importFile called with:" + fileName)
         // 导入新数据前先中止运行态，避免旧索引高亮引用已被替换的模型。
         stopRunLoop()
 
@@ -514,6 +741,7 @@ FluContentPage{
 
         // 使用C++后端读取CSV文件
         var csvData = csvFileReader.readCsvFile(fileUrl)
+        console.log("[IMPORT] CSV read complete, data rows:" + (csvData ? csvData.length : 0))
         
         if (!csvData || csvData.length === undefined || csvData.length === 0) {
             var err = csvFileReader.getLastError()
@@ -529,33 +757,78 @@ FluContentPage{
         var maxImportRows = 10000
         var importCount = Math.min(csvData.length, maxImportRows)
         var dataSource = []
+        var selectedCount = 0
+        var layerTopCount = 0
+        var designatorMap = {}  // Track designators to detect duplicates
         for (var i = 0; i < importCount; i++) {
             var row = csvData[i]
             if (!row) {
+                console.log("[IMPORT] Row " + i + ": Skipped (row is null)")
                 continue
             }
+            
+            var designator = String(readCsvField(row, ["Designator", "designator", "Reference", "reference", "Ref"]))
+            var smdField = readCsvField(row, ["SMD", "smd", "Placed", "placed", "Mount", "mount"])
+            var layerField = String(readCsvField(row, ["Layer", "layer", "Side", "side", "PCB Layer", "pcb layer"]))
+            var selected = parseTruthyValue(smdField)
+            var isTopLayer = isTopLayerValue(layerField)
+            
+            // Track designator occurrences
+            if (designator) {
+                if (!designatorMap[designator]) {
+                    designatorMap[designator] = 0
+                }
+                designatorMap[designator]++
+            }
+            
+            // Log first 10 rows and any duplicate designators
+            if (i < 10 || (designatorMap[designator] > 1)) {
+                console.log("[IMPORT] Row " + i + ": designator='" + designator + "' occurrence=" + designatorMap[designator] + 
+                            " SMD='" + smdField + "' selected=" + selected + 
+                            " layer='" + layerField + "' isTop=" + isTopLayer)
+            }
+            
+            if (selected) selectedCount++
+            if (isTopLayer) layerTopCount++
             var item = {
                 rowIndex: row.rowIndex || (i + 1),
-                selected: row.SMD === "Yes",
-                name: row.Designator || row.designator || "",
-                avatar:  row.Footprint || row.footprint ||row.Device || row.device || "",
-                age: row.Pins || "0",
-                address: row["Mid X"] || row.midX || row.midx || "",  // x坐标
-                nickname: row["Mid Y"] || row.midY || row.midy || "", // y坐标
-                longstring: row.Rotation || row.rotation || "0",       // 角度
+                selected: selected,
+                name: designator,
+                avatar: String(readCsvField(row, ["Footprint", "footprint", "Device", "device", "Package", "package"])),
+                age: String(readCsvField(row, ["Pins", "pins", "Pad Count", "padcount"]) || "0"),
+                address: String(readCsvField(row, ["Mid X", "midX", "midx", "X", "x"])),  // x坐标
+                nickname: String(readCsvField(row, ["Mid Y", "midY", "midy", "Y", "y"])), // y坐标
+                longstring: String(readCsvField(row, ["Rotation", "rotation", "Angle", "angle"]) || "0"),       // 角度
                 mounted: false,
-                layer: row.Layer || row.layer || "",                  // 板层
-                quantity: row.Pins || "0",                            // 数量
-                component_name: row.Device || row.device || row.Footprint || row.footprint || "",  // 器件名字
+                layer: layerField,                  // 板层
+                quantity: String(readCsvField(row, ["Pins", "pins", "Pad Count", "padcount"]) || "0"),                            // 数量
+                component_name: String(readCsvField(row, ["Device", "device", "Footprint", "footprint", "Package", "package", "Comment", "comment"]) ),  // 器件名字
                 _minimumHeight: 50,
                 _key: FluTools.uuid()
             }
             dataSource.push(item)
         }
+        
+        // Log designator duplicates summary
+        var duplicatesFound = []
+        for (var des in designatorMap) {
+            if (designatorMap[des] > 1) {
+                duplicatesFound.push(des + "(" + designatorMap[des] + "x)")
+            }
+        }
+        if (duplicatesFound.length > 0) {
+            console.log("[IMPORT] ⚠️ Duplicate designators found: " + duplicatesFound.join(", "))
+        }
+        
+        console.log("[IMPORT] Parse complete: total=" + importCount + " selected=" + selectedCount + " topLayer=" + layerTopCount + 
+                    " unique_designators=" + Object.keys(designatorMap).length)
 
         // 加载到表格
         applyHomeTableData(dataSource)
+        
         resetHomePlacementAdjustments()
+        console.log("[IMPORT] About to rebuild placement preview points")
+        rebuildPlacementPreviewPoints()
         Qt.callLater(function() {
             table_view.resizeHomeColumnsToContents()
         })
@@ -649,6 +922,18 @@ FluContentPage{
         onTriggered: {
             if (root.visible) {
                 cameraDeviceManager.startScanning()
+            }
+        }
+    }
+
+    Timer {
+        id: warnClearTimer
+        interval: 2000
+        repeat: false
+        property var lastWarnObj: null
+        onTriggered: {
+            if (warnClearTimer.lastWarnObj && typeof warnClearTimer.lastWarnObj.close === "function") {
+                warnClearTimer.lastWarnObj.close()
             }
         }
     }
@@ -786,7 +1071,7 @@ FluContentPage{
             Item {
                 clip: true
                 implicitWidth: parent.width
-                implicitHeight: parent.height * 0.4
+                implicitHeight: parent.height * 0.6
                 SplitView.minimumHeight: 200
                 SplitView.fillWidth: true
 
@@ -834,32 +1119,169 @@ FluContentPage{
                                 fillMode: Image.PreserveAspectFit
                                 smooth: true
                                 mipmap: true
+                                asynchronous: true
+                                cache: false
                                 onWidthChanged: root.clampPlacementPan()
                                 onHeightChanged: root.clampPlacementPan()
                             }
 
                             Item {
                                 id: placementOverlay
-                                x: placementImage.x + (placementImage.width - placementImage.paintedWidth) / 2
-                                y: placementImage.y + (placementImage.height - placementImage.paintedHeight) / 2
-                                width: placementImage.paintedWidth
-                                height: placementImage.paintedHeight
+                                property real marginSize: 60
+                                x: placementImage.x + (placementImage.width - placementImage.paintedWidth) / 2 - marginSize
+                                y: placementImage.y + (placementImage.height - placementImage.paintedHeight) / 2 - marginSize
+                                width: placementImage.paintedWidth + marginSize * 2
+                                height: placementImage.paintedHeight + marginSize * 2
                                 visible: placementImage.status === Image.Ready && width > 0 && height > 0
                                 clip: true
+                                
+                                // onWidthChanged: console.log("[OVERLAY] width changed to " + width)
+                                // onHeightChanged: console.log("[OVERLAY] height changed to " + height)
+                                onVisibleChanged: console.log("[OVERLAY] visible=" + visible + " (imageReady=" + (placementImage.status === Image.Ready) + " w=" + width + " h=" + height + ")")
+
+                                Canvas {
+                                    id: coordinateGrid
+                                    anchors.fill: parent
+                                    visible: parent.visible
+                                    property real gridSpacing: 50
+                                    property real boardWidthMm: root.placementObjectWidthMm
+                                    property real boardHeightMm: root.placementObjectHeightMm
+                                    property real margin: placementOverlay.marginSize
+                                    
+                                    onPaint: {
+                                        var ctx = getContext("2d")
+                                        var margin = placementOverlay.marginSize
+                                        var contentWidth = width - margin * 2
+                                        var contentHeight = height - margin * 2
+                                        
+                                        // 绘制边距区域背景
+                                        ctx.fillStyle = Qt.rgba(0.9, 0.9, 0.9, 0.2)
+                                        ctx.fillRect(0, 0, width, margin)  // 上边距
+                                        ctx.fillRect(0, height - margin, width, margin)  // 下边距
+                                        ctx.fillRect(0, margin, margin, contentHeight)  // 左边距
+                                        ctx.fillRect(width - margin, margin, margin, contentHeight)  // 右边距
+                                        
+                                        // 网格已删除 - 用户不期望坐标系内有网格
+                                        
+                                        // 原点坐标
+                                        var originX = margin, originY = height - margin
+                                        
+                                        // 绘制坐标轴箭头 - 箭头长度覆盖整个 PCB 区域
+                                        var axisLengthX = width - margin * 2   // X轴长度 = PCB宽度
+                                        var axisLengthY = height - margin * 2  // Y轴长度 = PCB高度
+                                        var arrowSize = 8    // 箭头大小
+                                        
+                                        // 绘制 X 轴
+                                        ctx.strokeStyle = "#0066FF"  // 蓝色
+                                        ctx.lineWidth = 2
+                                        ctx.beginPath()
+                                        ctx.moveTo(originX, originY)
+                                        ctx.lineTo(originX + axisLengthX, originY)
+                                        ctx.stroke()
+                                        
+                                        // X 轴箭头头部
+                                        drawArrow(ctx, originX + axisLengthX, originY, originX + axisLengthX + arrowSize, originY, "#0066FF")
+                                        
+                                        // 绘制 Y 轴
+                                        ctx.strokeStyle = "#00CC66"  // 绿色
+                                        ctx.lineWidth = 2
+                                        ctx.beginPath()
+                                        ctx.moveTo(originX, originY)
+                                        ctx.lineTo(originX, originY - axisLengthY)
+                                        ctx.stroke()
+                                        
+                                        // Y 轴箭头头部
+                                        drawArrow(ctx, originX, originY - axisLengthY, originX, originY - axisLengthY - arrowSize, "#00CC66")
+                                        
+                                        // 绘制原点标记
+                                        ctx.fillStyle = Qt.rgba(1, 0, 0, 0.5)
+                                        ctx.beginPath()
+                                        ctx.arc(originX, originY, 5, 0, 2 * Math.PI)
+                                        ctx.fill()
+                                        
+                                        ctx.fillStyle = "#FF0000"
+                                        ctx.font = "10px Arial"
+                                        ctx.fillText("O(0,0)", originX + 8, originY - 5)
+                                        ctx.font = "bold 16px Arial"
+                                        ctx.fillText("X: " + (boardWidthMm * 2).toFixed(1) + "mm", width - 120, margin + 20)
+                                        ctx.fillText("Y: " + (boardHeightMm * 2).toFixed(1) + "mm", margin + 5, margin + 20)
+                                        
+                                        // 绘制坐标轴标签
+                                        ctx.fillStyle = "#0066FF"
+                                        ctx.font = "bold 14px Arial"
+                                        ctx.fillText("X", width - margin + 10, originY + 12)
+                                        
+                                        ctx.fillStyle = "#00CC66"
+                                        ctx.fillText("Y", originX - 20, margin - 5)
+                                        
+                                        // 定义箭头绘制函数
+                                        function drawArrow(context, fromX, fromY, toX, toY, color) {
+                                            var headlen = 6
+                                            var angle = Math.atan2(toY - fromY, toX - fromX)
+                                            
+                                            context.fillStyle = color
+                                            context.beginPath()
+                                            context.moveTo(toX, toY)
+                                            context.lineTo(toX - headlen * Math.cos(angle - Math.PI / 6), toY - headlen * Math.sin(angle - Math.PI / 6))
+                                            context.lineTo(toX - headlen * Math.cos(angle + Math.PI / 6), toY - headlen * Math.sin(angle + Math.PI / 6))
+                                            context.closePath()
+                                            context.fill()
+                                        }
+                                    }
+                                    
+                                    Component.onCompleted: { requestPaint() }
+                                }
+                                
+                                Connections {
+                                    target: root
+                                    function onPlacementObjectWidthMmChanged() { coordinateGrid.requestPaint() }
+                                    function onPlacementObjectHeightMmChanged() { coordinateGrid.requestPaint() }
+                                }
 
                                 Repeater {
                                     model: root.placementPreviewPoints
-                                    delegate: Rectangle {
+                                    onModelChanged: console.log("[REPEATER] model changed, count=" + (model ? model.length : 0))
+                                    delegate: Item {
                                         property var pointData: modelData
-                                        width: 10
-                                        height: 10
-                                        radius: width / 2
-                                        color: Qt.rgba(1, 0, 0, 0.18)
-                                        border.color: "#FF2D2D"
-                                        border.width: 1.5
-                                        antialiasing: true
-                                        x: pointData.xNorm * placementOverlay.width - width / 2
-                                        y: pointData.yNorm * placementOverlay.height - height / 2
+                                        x: placementOverlay.marginSize + pointData.xNorm * placementImage.paintedWidth - width / 2
+                                        y: placementOverlay.marginSize + pointData.yNorm * placementImage.paintedHeight - height / 2
+                                        width: Math.max(10, pointData.packageWidthNorm * placementImage.paintedWidth)
+                                        height: Math.max(10, pointData.packageHeightNorm * placementImage.paintedHeight)
+                                        rotation: pointData.rotationAngle || 0
+                                        transformOrigin: Item.Center
+                                        
+                                        // 天蓝色矩形框，50% 透明度
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            color: Qt.rgba(0.68, 0.85, 1.0, 0.5)  // 天蓝色，50% 透明
+                                            border.color: "#4BA3D6"
+                                            border.width: 1
+                                            antialiasing: true
+                                        }
+                                        
+                                        // 中心红色圆圈
+                                        Rectangle {
+                                            width: 8
+                                            height: 8
+                                            radius: width / 2
+                                            color: Qt.rgba(1, 0, 0, 0.8)
+                                            border.color: "#FF2D2D"
+                                            border.width: 1
+                                            antialiasing: true
+                                            anchors.centerIn: parent
+                                        }
+                                        
+                                        Component.onCompleted: {
+                                            // 检查封装库
+                                            var packageMap = getPackageLibraryMap()
+                                            if (!packageMap[pointData.packageName]) {
+                                                root.warn(qsTr("未知的封装 '") + pointData.packageName + qsTr("'，元件 ") + pointData.name + qsTr(" 使用默认尺寸"))
+                                            }
+                                            
+                                            if (index < 3) {
+                                                console.log("[COMPONENT] Component " + index + " '" + pointData.name + "' (" + pointData.packageName + ") at (" + x.toFixed(1) + "," + y.toFixed(1) + ") size=(" + width.toFixed(1) + "x" + height.toFixed(1) + ") rotation=" + pointData.rotationAngle + "°")
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -872,11 +1294,11 @@ FluContentPage{
                                 property real lastMouseX: 0
                                 property real lastMouseY: 0
 
-                                onPressed: {
+                                onPressed: function(mouse) {
                                     lastMouseX = mouse.x
                                     lastMouseY = mouse.y
                                 }
-                                onPositionChanged: {
+                                onPositionChanged: function(mouse) {
                                     if (!(mouse.buttons & Qt.LeftButton)) {
                                         return
                                     }
@@ -1017,9 +1439,10 @@ FluContentPage{
             Item {
                 clip: true
                 implicitWidth: parent.width
-                implicitHeight: parent.height * 0.6
+                implicitHeight: parent.height * 0.4
                 SplitView.minimumHeight: 200
                 SplitView.fillWidth: true
+                SplitView.fillHeight: true
 
                 HomePageTableToolbar {
                     id: layout_controls
@@ -1122,17 +1545,17 @@ FluContentPage{
                 }
                 dataSource.push({
                     rowIndex: dataSource.length + 1,
-                    selected: row.SMD === "Yes",
-                    name: row.Designator || row.designator || "",
-                    avatar:  row.Footprint || row.footprint || row.Device || row.device ||"",
-                    age: row.Pins || "0",
-                    address: row["Mid X"] || row.midX || row.midx || "",
-                    nickname: row["Mid Y"] || row.midY || row.midy || "",
-                    longstring: row.Rotation || row.rotation || "0",
+                    selected: parseTruthyValue(readCsvField(row, ["SMD", "smd", "Placed", "placed", "Mount", "mount"])),
+                    name: String(readCsvField(row, ["Designator", "designator", "Reference", "reference", "Ref"])),
+                    avatar: String(readCsvField(row, ["Footprint", "footprint", "Device", "device", "Package", "package"])),
+                    age: String(readCsvField(row, ["Pins", "pins", "Pad Count", "padcount"]) || "0"),
+                    address: String(readCsvField(row, ["Mid X", "midX", "midx", "X", "x"])),
+                    nickname: String(readCsvField(row, ["Mid Y", "midY", "midy", "Y", "y"])),
+                    longstring: String(readCsvField(row, ["Rotation", "rotation", "Angle", "angle"]) || "0"),
                     mounted: false,
-                    layer: row.Layer || row.layer || "",
-                    quantity: row.Pins || "0",
-                    component_name: row.Device || row.device || row.Footprint || row.footprint || "",
+                    layer: String(readCsvField(row, ["Layer", "layer", "Side", "side", "PCB Layer", "pcb layer"])),
+                    quantity: String(readCsvField(row, ["Pins", "pins", "Pad Count", "padcount"]) || "0"),
+                    component_name: String(readCsvField(row, ["Device", "device", "Footprint", "footprint", "Package", "package", "Comment", "comment"])),
                     _minimumHeight: 50,
                     _key: FluTools.uuid()
                 })
