@@ -198,51 +198,14 @@ FluContentPage{
     }
     
     function getPackageLibraryMap() {
-        // 外部封装库 (可以从文件系统读取，这里使用内置库)
-        return {
-            "0201": { width: 0.6, height: 0.3 },
-            "0402": { width: 1.0, height: 0.5 },
-            "0603": { width: 1.6, height: 0.8 },
-            "0805": { width: 2.0, height: 1.25 },
-            "1206": { width: 3.2, height: 1.6 },
-            "1210": { width: 3.2, height: 2.5 },
-            "1812": { width: 4.5, height: 3.2 },
-            "2010": { width: 5.0, height: 2.5 },
-            "2512": { width: 6.35, height: 3.2 },
-            "C0201": { width: 0.6, height: 0.3 },
-            "C0402": { width: 1.0, height: 0.5 },
-            "C0603": { width: 1.6, height: 0.8 },
-            "C0805": { width: 2.0, height: 1.25 },
-            "C1206": { width: 3.2, height: 1.6 },
-            "C1210": { width: 3.2, height: 2.5 },
-            "C1812": { width: 4.5, height: 3.2 },
-            "C2010": { width: 5.0, height: 2.5 },
-            "C2512": { width: 6.35, height: 3.2 },
-            "R0201": { width: 0.6, height: 0.3 },
-            "R0402": { width: 1.0, height: 0.5 },
-            "R0603": { width: 1.6, height: 0.8 },
-            "R0805": { width: 2.0, height: 1.25 },
-            "R1206": { width: 3.2, height: 1.6 },
-            "R1210": { width: 3.2, height: 2.5 },
-            "R1812": { width: 4.5, height: 3.2 },
-            "R2010": { width: 5.0, height: 2.5 },
-            "R2512": { width: 6.35, height: 3.2 },
-            "SOT23": { width: 2.9, height: 1.3 },
-            "SOT25": { width: 2.8, height: 1.3 },
-            "SOT53": { width: 2.9, height: 1.3 },
-            "TSSOP20": { width: 6.5, height: 4.4 },
-            "DIP8": { width: 9.81, height: 6.35 },
-            "DIP14": { width: 19.81, height: 6.35 },
-            "DIP16": { width: 19.81, height: 7.62 },
-            "QFP32": { width: 7.0, height: 7.0 },
-            "QFP48": { width: 9.0, height: 9.0 },
-            "BGA": { width: 5.0, height: 5.0 },
-            // 添加更多常见封装
-            "LED0603": { width: 1.6, height: 0.8 },
-            "LEDRDBLUERED0603": { width: 1.6, height: 0.8 },
-            "SOD123": { width: 2.7, height: 1.8 },
-            "SMFD5CA": { width: 2.7, height: 1.8 }
+        // 从 C++ 后端读取 package_library.csv，如果不存在则使用内置库
+        var packageMap = csvFileReader.getPackageLibraryMap()
+        if (packageMap && Object.keys(packageMap).length > 0) {
+            console.log("[PACKAGE_LIB] Loaded " + Object.keys(packageMap).length + " packages from library")
+        } else {
+            console.log("[PACKAGE_LIB] Using fallback internal library")
         }
+        return packageMap
     }
 
     // 判断数据点是否在四个角落（离边缘 < cornerThreshold）
@@ -460,8 +423,7 @@ FluContentPage{
     }
 
     function warn(text) {
-        showWarning(text)
-        warnClearTimer.restart()  // 启动 2 秒后自动清除计时器
+        showWarning(text, 3000)  // duration 参数设为 2000ms，自动消失
     }
 
     function ok(text) {
@@ -676,6 +638,12 @@ FluContentPage{
     onPlacementOffsetYMmChanged: rebuildPlacementPreviewPoints()
 
     Component.onCompleted: {
+        console.log("[HomePage.qml] Component.onCompleted started")
+        
+        // Test package library loading
+        var pkgMap = csvFileReader.getPackageLibraryMap()
+        console.log("[HomePage.qml] Package library returned " + Object.keys(pkgMap).length + " entries")
+        
         nameKeyword = mainWindow.homeNameKeyword
         layerKeyword = mainWindow.homeLayerKeyword
         if (mainWindow.homeTableData && mainWindow.homeTableData.length > 0) {
@@ -922,18 +890,6 @@ FluContentPage{
         onTriggered: {
             if (root.visible) {
                 cameraDeviceManager.startScanning()
-            }
-        }
-    }
-
-    Timer {
-        id: warnClearTimer
-        interval: 2000
-        repeat: false
-        property var lastWarnObj: null
-        onTriggered: {
-            if (warnClearTimer.lastWarnObj && typeof warnClearTimer.lastWarnObj.close === "function") {
-                warnClearTimer.lastWarnObj.close()
             }
         }
     }
@@ -1243,6 +1199,7 @@ FluContentPage{
                                     onModelChanged: console.log("[REPEATER] model changed, count=" + (model ? model.length : 0))
                                     delegate: Item {
                                         property var pointData: modelData
+                                        property bool packageFound: false  // 追踪包是否找到
                                         x: placementOverlay.marginSize + pointData.xNorm * placementImage.paintedWidth - width / 2
                                         y: placementOverlay.marginSize + pointData.yNorm * placementImage.paintedHeight - height / 2
                                         width: Math.max(10, pointData.packageWidthNorm * placementImage.paintedWidth)
@@ -1250,11 +1207,11 @@ FluContentPage{
                                         rotation: pointData.rotationAngle || 0
                                         transformOrigin: Item.Center
                                         
-                                        // 天蓝色矩形框，50% 透明度
+                                        // 根据是否找到包来改变颜色：找到用天蓝色，未找到用红色
                                         Rectangle {
                                             anchors.fill: parent
-                                            color: Qt.rgba(0.68, 0.85, 1.0, 0.5)  // 天蓝色，50% 透明
-                                            border.color: "#4BA3D6"
+                                            color: packageFound ? Qt.rgba(0.68, 0.85, 1.0, 0.5) : Qt.rgba(1.0, 0.4, 0.4, 0.85)  // 天蓝色或红色
+                                            border.color: packageFound ? "#4BA3D6" : "#FF6B6B"
                                             border.width: 1
                                             antialiasing: true
                                         }
@@ -1272,9 +1229,29 @@ FluContentPage{
                                         }
                                         
                                         Component.onCompleted: {
-                                            // 检查封装库
+                                            // 使用与 getPackageSizeMm() 相同的匹配逻辑来检查包是否存在
                                             var packageMap = getPackageLibraryMap()
-                                            if (!packageMap[pointData.packageName]) {
+                                            var normalizedName = String(pointData.packageName).toUpperCase().replace(/[\s_-]/g, "")
+                                            
+                                            packageFound = false
+                                            
+                                            // 精确匹配
+                                            if (packageMap && packageMap[normalizedName]) {
+                                                packageFound = true
+                                            }
+                                            
+                                            // 模糊匹配（部分字符串）
+                                            if (!packageFound && packageMap) {
+                                                for (var key in packageMap) {
+                                                    if (normalizedName.indexOf(key) !== -1 || key.indexOf(normalizedName) !== -1) {
+                                                        packageFound = true
+                                                        break
+                                                    }
+                                                }
+                                            }
+                                            
+                                            // 只有在都没匹配到时才显示警告
+                                            if (!packageFound) {
                                                 root.warn(qsTr("未知的封装 '") + pointData.packageName + qsTr("'，元件 ") + pointData.name + qsTr(" 使用默认尺寸"))
                                             }
                                             

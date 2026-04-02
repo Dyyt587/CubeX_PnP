@@ -121,6 +121,11 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("interactiveBomUrl", resolveInteractiveBomUrl());
     engine.addImageProvider("opencvpreview", openCvPreviewManager.createImageProvider());
 
+    // Preload package library during startup for diagnosing CSV parsing
+    qDebug().nospace() << "[STARTUP] Preloading package library...";
+    auto pkgMap = csvFileReader.getPackageLibraryMap();
+    qDebug().nospace() << "[STARTUP] Package library returned " << pkgMap.size() << " entries";
+
     qmlRegisterType<CircularReveal>(uri, major, minor, "CircularReveal");
 
     QObject::connect(

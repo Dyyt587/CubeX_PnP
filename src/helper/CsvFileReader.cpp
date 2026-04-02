@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QStandardPaths>
 #include <QByteArray>
+#include <QRegularExpression>
 
 static QString decodeCsvText(const QByteArray &bytes)
 {
@@ -70,7 +71,7 @@ static QString csvEscapeField(const QString &input)
 }
 
 CsvFileReader::CsvFileReader(QObject *parent)
-    : QObject(parent)
+    : QObject(parent), m_packageLibraryCacheValid(false)
 {
 }
 
@@ -391,4 +392,321 @@ bool CsvFileReader::writePackageLibraryCsv(const QVariantList &rows, const QStri
 QString CsvFileReader::getLastError() const
 {
     return lastError;
+}
+
+bool CsvFileReader::isPackageLibraryCacheValid()
+{
+    // 检查缓存是否有效
+    if (!m_packageLibraryCacheValid || m_packageLibraryCache.isEmpty()) {
+        return false;
+    }
+    
+    // 检查缓存是否过期（60秒）
+    QDateTime now = QDateTime::currentDateTime();
+    if (m_packageLibraryCacheTime.isValid()) {
+        qint64 elapsedMs = m_packageLibraryCacheTime.msecsTo(now);
+        if (elapsedMs > PACKAGE_LIBRARY_CACHE_TIMEOUT_MS) {
+            qDebug() << "[PACKAGE_LIB_CACHE] Cache expired (" << elapsedMs << "ms > " << PACKAGE_LIBRARY_CACHE_TIMEOUT_MS << "ms)";
+            return false;
+        }
+    }
+    
+    // 检查外部CSV文件是否修改过
+    QFileInfo csvFile(packageLibraryCsvPath());
+    if (csvFile.exists() && m_packageLibraryCacheTime.isValid()) {
+        QDateTime fileModTime = csvFile.lastModified();
+        if (fileModTime > m_packageLibraryCacheTime) {
+            qDebug() << "[PACKAGE_LIB_CACHE] CSV file was modified, invalidating cache";
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+QVariantMap CsvFileReader::getPackageLibraryMap()
+{
+    qDebug().nospace() << "[PACKAGE_LIB] getPackageLibraryMap() called ====================";
+    
+    // 检查是否有有效的缓存
+    if (isPackageLibraryCacheValid()) {
+        qDebug() << "[PACKAGE_LIB_CACHE] Using cached package library (" << m_packageLibraryCache.size() << "entries)";
+        return m_packageLibraryCache;
+    }
+    
+    qDebug() << "[PACKAGE_LIB_CACHE] Cache invalid or expired, rebuilding...";
+    
+ QVariantMap result;
+    
+    // 获取应用数据路径
+    QString appDataPath = appDataFolderPath();
+    QString csvPath = packageLibraryCsvPath();
+    QString logPath = csvPath.replace("package_library.csv", "package_parse_debug.log");
+    
+    qDebug() << "[PACKAGE_LIB] appDataPath:" << appDataPath;
+    qDebug() << "[PACKAGE_LIB] csvPath:" << csvPath;
+    qDebug() << "[PACKAGE_LIB] logPath:" << logPath;
+    
+    // 打开日志文件用于调试
+    QFile logFile(logPath);
+    if (!logFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        qDebug() << "[PACKAGE_LIB] Failed to open log file:" << logFile.errorString();
+        // Write test file to verify writability
+        QFile testFile(appDataPath + "/test_write.txt");
+        if (testFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            testFile.write("Test write OK\n");
+            testFile.close();
+            qDebug() << "[PACKAGE_LIB] Test file write succeeded at:" << appDataPath + "/test_write.txt";
+        } else {
+            qDebug() << "[PACKAGE_LIB] Test file write FAILED:" << testFile.errorString();
+        }
+        return result;  // Return empty if cannot write log
+    }
+    QTextStream logStream(&logFile);
+    
+    // 尝试从外部 CSV 文件读取，如果不存在则使用内置库
+    if (packageLibraryCsvExists()) {
+        QVariantList data = readPackageLibraryCsv();
+        logStream << QString("[PACKAGE_LIB] Read %1 package entries from CSV\n").arg(data.length());
+        qDebug() << "[PACKAGE_LIB] Read " << data.length() << " package entries from CSV";
+        
+        if (data.isEmpty()) {
+            qDebug() << "[PACKAGE_LIB] CSV data is empty, using internal library";
+        } else {
+            // 检查第一行的结构和所有可用的列
+            if (data.length() > 0) {
+                const QVariantMap firstRow = data[0].toMap();
+                QStringList allKeys = firstRow.keys();
+                qDebug() << "[PACKAGE_LIB] First row keys:" << allKeys;
+                qDebug() << "[PACKAGE_LIB] Total keys:" << allKeys.length();
+                
+                // 打印每个键的值
+                for (const QString &key : allKeys) {
+                    qDebug() << "  " << key << "=" << firstRow[key];
+                }
+            }
+        }
+        
+        int successCount = 0;
+        int failedCount = 0;
+        
+        for (int idx = 0; idx < data.length(); ++idx) {
+            const QVariant &row = data[idx];
+            const QVariantMap rowMap = row.toMap();
+            
+            if (rowMap.isEmpty()) {
+                if (idx < 3) qDebug() << "[PACKAGE_LIB] Row" << idx << "is empty map";
+                failedCount++;
+                continue;
+            }
+            
+            // 获取所有键用于调试
+            QStringList rowKeys = rowMap.keys();
+            
+            // 查找PackageName/Package列 - 递归检查所有可能的变体
+            QString packageName;
+            // 首先尝试常见的英文列名
+            for (const QString &key : rowKeys) {
+                QString keyUpper = key.toUpper();
+                if (keyUpper.contains("PACKAGE") || keyUpper.contains("NAME") || keyUpper == "PKG" || 
+                    keyUpper == "FOOTPRINT" || keyUpper == "DEVICE") {
+                    QString candidate = rowMap[key].toString().trimmed();
+                    if (!candidate.isEmpty() && candidate != "PackageName" && candidate != "Name") {
+                        packageName = candidate;
+                        if (idx < 3) qDebug() << "[PACKAGE_LIB] Row" << idx << "found package name via key" << key << "=" << packageName;
+                        break;
+                    }
+                }
+            }
+            
+            if (packageName.isEmpty()) {
+                if (idx < 3) {
+                    qDebug() << "[PACKAGE_LIB] Row" << idx << "no package name found. Available keys and values:";
+                    for (const QString &key : rowKeys) {
+                        qDebug() << "  " << key << "=" << rowMap[key];
+                    }
+                }
+                failedCount++;
+                continue;
+            }
+            
+            // 查找Width和Height列
+            double widthMm = 0;
+            double heightMm = 0;
+            
+            // 首先尝试找到包含 "x" 分隔符的 size 列 (格式: "0.30 x 0.15" 或 "0.30 x 0.15 x 0.10")
+            for (const QString &key : rowKeys) {
+                QString keyUpper = key.toUpper();
+                if (keyUpper.contains("SIZE") || keyUpper.contains("DIMENSION") || keyUpper == "SIZE") {
+                    QString sizeStr = rowMap[key].toString().trimmed();
+                    if (sizeStr.contains("x") || sizeStr.contains("X")) {
+                        // 按 "x" 分割
+                        QStringList parts = sizeStr.split(QRegularExpression("[xX]"), Qt::SkipEmptyParts);
+                        if (parts.length() >= 2) {
+                            bool okW = false, okH = false;
+                            double w = parts[0].trimmed().toDouble(&okW);
+                            double h = parts[1].trimmed().toDouble(&okH);
+                            
+                            if (okW && okH && w > 0 && h > 0 && w < 1000 && h < 1000) {
+                                widthMm = w;
+                                heightMm = h;
+                                if (idx < 3) qDebug() << "[PACKAGE_LIB] Row" << idx << "parsed size from key" << key << "=" << sizeStr << "-> width=" << widthMm << "height=" << heightMm;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 如果没有找到 size 列，尝试查找单独的 Width 和 Height 数值列
+            if (widthMm == 0 || heightMm == 0) {
+                // 查找Width列
+                for (const QString &key : rowKeys) {
+                    QString keyUpper = key.toUpper();
+                    if (keyUpper.contains("WIDTH") || keyUpper.contains("LENGTH")) {
+                        bool ok = false;
+                        QString valStr = rowMap[key].toString().trimmed();
+                        double val = valStr.toDouble(&ok);
+                        if (ok && val > 0 && val < 1000) {  // 合理的尺寸范围 0-1000mm
+                            widthMm = val;
+                            if (idx < 3) qDebug() << "[PACKAGE_LIB] Row" << idx << "found width via key" << key << "=" << widthMm;
+                            break;
+                        }
+                    }
+                }
+                
+                // 查找Height列
+                for (const QString &key : rowKeys) {
+                    QString keyUpper = key.toUpper();
+                    if (keyUpper.contains("HEIGHT") || keyUpper.contains("DEPTH")) {
+                        bool ok = false;
+                        QString valStr = rowMap[key].toString().trimmed();
+                        double val = valStr.toDouble(&ok);
+                        if (ok && val > 0 && val < 1000) {
+                            heightMm = val;
+                            if (idx < 3) qDebug() << "[PACKAGE_LIB] Row" << idx << "found height via key" << key << "=" << heightMm;
+                            break;
+                        }
+                    }
+                }
+                
+                // 如果只找到了 width，尝试从其他数值列中推断 height
+                if (widthMm > 0 && heightMm == 0) {
+                    for (const QString &key : rowKeys) {
+                        if (key.toUpper().contains("WIDTH") || key.toUpper().contains("NAME") || key.toUpper().contains("PACKAGE")) 
+                            continue;
+                        bool ok = false;
+                        QString valStr = rowMap[key].toString().trimmed();
+                        double val = valStr.toDouble(&ok);
+                        if (ok && val > 0 && val < 1000 && val != widthMm) {
+                            heightMm = val;
+                            if (idx < 3) qDebug() << "[PACKAGE_LIB] Row" << idx << "inferred height from key" << key << "=" << heightMm;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if (widthMm > 0 && heightMm > 0) {
+                // 规范化包名称（大写，去除特殊符号）
+                QString normalizedName = packageName.toUpper().replace(QRegularExpression("[\\s_-]"), "");
+                QVariantMap sizeMap;
+                sizeMap["width"] = widthMm;
+                sizeMap["height"] = heightMm;
+                result[normalizedName] = sizeMap;
+                successCount++;
+                
+                if (successCount <= 5) {
+                    logStream << QString("[PACKAGE_LIB] Successfully loaded package: %1 size: (%2 x %3)\n").arg(normalizedName).arg(widthMm).arg(heightMm);
+                    qDebug() << "[PACKAGE_LIB] Successfully loaded package:" << normalizedName << "size: (" << widthMm << "x" << heightMm << ")";
+                }
+            } else {
+                if (idx < 3) {
+                    qDebug() << "[PACKAGE_LIB] Row" << idx << "invalid dimensions: width=" << widthMm << "height=" << heightMm << "packageName=" << packageName;
+                }
+                failedCount++;
+            }
+        }
+        
+        logStream << QString("[PACKAGE_LIB] CSV parse summary: success=%1 failed=%2 total=%3\n").arg(successCount).arg(failedCount).arg(data.length());
+        qDebug() << "[PACKAGE_LIB] CSV parse summary: success=" << successCount << "failed=" << failedCount << "total=" << data.length();
+        
+        if (!result.isEmpty()) {
+            logStream << QString("[PACKAGE_LIB] Successfully loaded %1 packages from CSV\n").arg(result.size());
+            qDebug() << "[PACKAGE_LIB] Successfully loaded " << result.size() << " packages from CSV";
+            
+            // 更新缓存
+            m_packageLibraryCache = result;
+            m_packageLibraryCacheTime = QDateTime::currentDateTime();
+            m_packageLibraryCacheValid = true;
+            qDebug() << "[PACKAGE_LIB_CACHE] Package library cached, expires in " << PACKAGE_LIBRARY_CACHE_TIMEOUT_MS << "ms";
+            
+            logStream.flush();
+            logFile.close();
+            return result;
+        } else {
+            logStream << "[PACKAGE_LIB] CSV file exists but no valid entries parsed, falling back to internal library\n";
+            qDebug() << "[PACKAGE_LIB] CSV file exists but no valid entries parsed, falling back to internal library";
+        }
+    } else {
+        logStream << QString("[PACKAGE_LIB] Package library CSV not found at: %1, using internal library\n").arg(packageLibraryCsvPath());
+        qDebug() << "[PACKAGE_LIB] Package library CSV not found at:" << packageLibraryCsvPath() << ", using internal library";
+    }
+    
+    // 内置默认库（回退方案）
+    result["0201"] = QVariantMap{{"width", 0.6}, {"height", 0.3}};
+    result["0402"] = QVariantMap{{"width", 1.0}, {"height", 0.5}};
+    result["0603"] = QVariantMap{{"width", 1.6}, {"height", 0.8}};
+    result["0805"] = QVariantMap{{"width", 2.0}, {"height", 1.25}};
+    result["1206"] = QVariantMap{{"width", 3.2}, {"height", 1.6}};
+    result["1210"] = QVariantMap{{"width", 3.2}, {"height", 2.5}};
+    result["1812"] = QVariantMap{{"width", 4.5}, {"height", 3.2}};
+    result["2010"] = QVariantMap{{"width", 5.0}, {"height", 2.5}};
+    result["2512"] = QVariantMap{{"width", 6.35}, {"height", 3.2}};
+    result["C0201"] = QVariantMap{{"width", 0.6}, {"height", 0.3}};
+    result["C0402"] = QVariantMap{{"width", 1.0}, {"height", 0.5}};
+    result["C0603"] = QVariantMap{{"width", 1.6}, {"height", 0.8}};
+    result["C0805"] = QVariantMap{{"width", 2.0}, {"height", 1.25}};
+    result["C1206"] = QVariantMap{{"width", 3.2}, {"height", 1.6}};
+    result["C1210"] = QVariantMap{{"width", 3.2}, {"height", 2.5}};
+    result["C1812"] = QVariantMap{{"width", 4.5}, {"height", 3.2}};
+    result["C2010"] = QVariantMap{{"width", 5.0}, {"height", 2.5}};
+    result["C2512"] = QVariantMap{{"width", 6.35}, {"height", 3.2}};
+    result["R0201"] = QVariantMap{{"width", 0.6}, {"height", 0.3}};
+    result["R0402"] = QVariantMap{{"width", 1.0}, {"height", 0.5}};
+    result["R0603"] = QVariantMap{{"width", 1.6}, {"height", 0.8}};
+    result["R0805"] = QVariantMap{{"width", 2.0}, {"height", 1.25}};
+    result["R1206"] = QVariantMap{{"width", 3.2}, {"height", 1.6}};
+    result["R1210"] = QVariantMap{{"width", 3.2}, {"height", 2.5}};
+    result["R1812"] = QVariantMap{{"width", 4.5}, {"height", 3.2}};
+    result["R2010"] = QVariantMap{{"width", 5.0}, {"height", 2.5}};
+    result["R2512"] = QVariantMap{{"width", 6.35}, {"height", 3.2}};
+    result["SOT23"] = QVariantMap{{"width", 2.9}, {"height", 1.3}};
+    result["SOT25"] = QVariantMap{{"width", 2.8}, {"height", 1.3}};
+    result["SOT53"] = QVariantMap{{"width", 2.9}, {"height", 1.3}};
+    result["TSSOP20"] = QVariantMap{{"width", 6.5}, {"height", 4.4}};
+    result["DIP8"] = QVariantMap{{"width", 9.81}, {"height", 6.35}};
+    result["DIP14"] = QVariantMap{{"width", 19.81}, {"height", 6.35}};
+    result["DIP16"] = QVariantMap{{"width", 19.81}, {"height", 7.62}};
+    result["QFP32"] = QVariantMap{{"width", 7.0}, {"height", 7.0}};
+    result["QFP48"] = QVariantMap{{"width", 9.0}, {"height", 9.0}};
+    result["BGA"] = QVariantMap{{"width", 5.0}, {"height", 5.0}};
+    result["LED0603"] = QVariantMap{{"width", 1.6}, {"height", 0.8}};
+    result["LEDRDBLUERED0603"] = QVariantMap{{"width", 1.6}, {"height", 0.8}};
+    result["SOD123"] = QVariantMap{{"width", 2.7}, {"height", 1.8}};
+    result["SMFD5CA"] = QVariantMap{{"width", 2.7}, {"height", 1.8}};
+    
+    logStream << QString("[PACKAGE_LIB] Using internal library with %1 entries\n").arg(result.size());
+    qDebug() << "[PACKAGE_LIB] Using internal library with" << result.size() << "entries";
+    
+    // 应用缓存内置库
+    m_packageLibraryCache = result;
+    m_packageLibraryCacheTime = QDateTime::currentDateTime();
+    m_packageLibraryCacheValid = true;
+    qDebug() << "[PACKAGE_LIB_CACHE] Internal library cached, expires in " << PACKAGE_LIBRARY_CACHE_TIMEOUT_MS << "ms";
+    
+    logStream.flush();
+    logFile.close();
+    
+    return result;
 }

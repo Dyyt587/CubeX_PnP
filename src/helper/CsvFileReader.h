@@ -7,6 +7,7 @@
 #include <QVariantMap>
 #include <QString>
 #include <QStringList>
+#include <QDateTime>
 
 class CsvFileReader : public QObject {
     Q_OBJECT
@@ -22,12 +23,20 @@ public:
     Q_INVOKABLE bool packageLibraryCsvExists() const;
     Q_INVOKABLE QVariantList readPackageLibraryCsv();
     Q_INVOKABLE bool writePackageLibraryCsv(const QVariantList &rows, const QStringList &headers);
+    Q_INVOKABLE QVariantMap getPackageLibraryMap();
     Q_INVOKABLE QString getLastError() const;
 
 private:
     QVariantList parseCSV(const QString &content, const QStringList &headers);
     QStringList parseCSVLine(const QString &line);
     QString lastError;
+    
+    // Package library caching optimization
+    QVariantMap m_packageLibraryCache;
+    QDateTime m_packageLibraryCacheTime;
+    bool m_packageLibraryCacheValid;
+    const int PACKAGE_LIBRARY_CACHE_TIMEOUT_MS = 60000;  // 60 seconds
+    bool isPackageLibraryCacheValid();
 
 signals:
     void fileParsed(const QVariantList &data);
