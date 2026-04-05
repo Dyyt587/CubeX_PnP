@@ -1093,7 +1093,12 @@ FluContentPage{
                                 
                                 // onWidthChanged: console.log("[OVERLAY] width changed to " + width)
                                 // onHeightChanged: console.log("[OVERLAY] height changed to " + height)
-                                onVisibleChanged: console.log("[OVERLAY] visible=" + visible + " (imageReady=" + (placementImage.status === Image.Ready) + " w=" + width + " h=" + height + ")")
+                                onVisibleChanged: {
+                                    console.log("[OVERLAY] visible=" + visible + " (imageReady=" + (placementImage.status === Image.Ready) + " w=" + width + " h=" + height + ")")
+                                    if (visible) {
+                                        Qt.callLater(() => coordinateGrid.requestPaint())
+                                    }
+                                }
 
                                 Canvas {
                                     id: coordinateGrid

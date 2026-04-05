@@ -42,20 +42,20 @@ FluFrame {
         }
 
         FluButton {
-            text: qsTr("Clear All")
+            text: qsTr("清空全部")
             onClicked: control.clearAllClicked()
         }
 
         FluButton {
-            text: qsTr("Delete Selection")
+            text: qsTr("删除选择")
             onClicked: control.deleteSelectionClicked()
         }
         FluButton {
-            text: qsTr("Add a row of Data")
+            text: qsTr("添加数据行")
             onClicked: control.addRowClicked()
         }
         FluButton {
-            text: qsTr("Insert a Row")
+            text: qsTr("插入行")
             onClicked: control.insertRowClicked()
         }
     }

@@ -9,6 +9,17 @@ FluWindow {
     Component.onCompleted: {
         openCvPreviewManager.setTopCamera(topSharedCamera)
         openCvPreviewManager.setBottomCamera(bottomSharedCamera)
+                
+        // Load and apply dark mode setting
+        if (settingsHelper) {
+            var darkModeSetting = settingsHelper.getDarkMode()
+            console.log("[AppMainWindow] Loading dark mode setting:", darkModeSetting)
+            if (darkModeSetting === 1) {
+                FluTheme.darkMode = FluThemeType.Dark
+            } else {
+                FluTheme.darkMode = FluThemeType.Light
+            }
+        }
     }
 
     width: Screen.width *0.8

@@ -47,7 +47,7 @@ QtObject {
     property Component com_column_filter_name: Component {
         Item {
             FluText {
-                text: qsTr("Name")
+                text: qsTr("名称")
                 anchors.centerIn: parent
             }
             FluIconButton {
@@ -111,7 +111,7 @@ QtObject {
             RowLayout {
                 anchors.centerIn: parent
                 FluButton {
-                    text: qsTr("Delete")
+                    text: qsTr("删除")
                     onClicked: {
                         control.tableView.closeEditor()
                         control.tableView.removeRow(row)
@@ -119,7 +119,7 @@ QtObject {
                     }
                 }
                 FluFilledButton {
-                    text: qsTr("Edit")
+                    text: qsTr("编辑")
                     onClicked: {
                         var obj = control.tableView.getRow(row)
                         obj.name = "12345"

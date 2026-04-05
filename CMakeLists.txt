@@ -104,6 +104,34 @@ target_link_libraries(appCubeX_PnP
 )
 target_include_directories(appCubeX_PnP PRIVATE ${OpenCV_INCLUDE_DIRS})
 
+# 配置翻译文件编译
+find_package(Qt6 REQUIRED COMPONENTS LinguistTools)
+
+set(TS_FILES
+    CubeX_PnP_en_US.ts
+    CubeX_PnP_zh_CN.ts
+)
+
+qt6_add_translations(appCubeX_PnP
+    TS_FILES ${TS_FILES}
+    LUPDATE_OPTIONS -locations none
+    LRELEASE_OPTIONS -compress -nounfinished
+)
+
+# 在构建后将 .qm 文件复制到输出目录的 i18n 文件夹
+add_custom_command(TARGET appCubeX_PnP POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory 
+        "$<TARGET_FILE_DIR:appCubeX_PnP>/i18n"
+)
+
+foreach(qm_file ${QM_FILES})
+    add_custom_command(TARGET appCubeX_PnP POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${qm_file}"
+            "$<TARGET_FILE_DIR:appCubeX_PnP>/i18n/${qm_file}"
+    )
+endforeach()
+
 include(GNUInstallDirs)
 install(TARGETS appCubeX_PnP
     BUNDLE DESTINATION .

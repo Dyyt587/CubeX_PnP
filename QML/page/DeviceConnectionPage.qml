@@ -84,9 +84,9 @@ FluContentPage {
 
     function loadDevices() {
         deviceList = [
-                    { id: 1, name: "CubeXPnP-001", address: "192.168.1.100", status: "已连接", type: "USB" },
-                    { id: 2, name: "CubeXPnP-002", address: "192.168.1.101", status: "离线", type: "网络" },
-                    { id: 3, name: "CubeXPnP-003", address: "192.168.1.102", status: "已连接", type: "蓝牙" }
+                    { id: 1, name: "CubeXPnP-001", address: "192.168.1.100", status: qsTr("已连接"), type: qsTr("USB") },
+                    { id: 2, name: "CubeXPnP-002", address: "192.168.1.101", status: qsTr("离线"), type: qsTr("网络") },
+                    { id: 3, name: "CubeXPnP-003", address: "192.168.1.102", status: qsTr("已连接"), type: qsTr("蓝牙") }
                 ]
     }
 

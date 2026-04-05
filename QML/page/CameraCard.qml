@@ -83,7 +83,7 @@ Rectangle {
     readonly property var binAlgorithmNames: [
         qsTr("手动阈值"),
         qsTr("Otsu自适应"),
-        qsTr("Triangle"),
+        qsTr("三角形法"),
         qsTr("自适应高斯"),
         qsTr("自适应均值")
     ]
@@ -525,7 +525,7 @@ Rectangle {
                         spacing: 1
 
                         FluText {
-                            text: qsTr("%1 FPS").arg(cameraCard.fps.toFixed(1))
+                            text: qsTr("%1 帧/秒").arg(cameraCard.fps.toFixed(1))
                             font.pixelSize: 10
                             color: FluTheme.dark ? "#ffffff" : "#000000"
                         }
@@ -729,7 +729,7 @@ Rectangle {
                 visible: binAlgorithm === 1 || binAlgorithm === 2
 
                 Text {
-                    text: binAlgorithm === 1 ? qsTr("Otsu: 自动计算阈值") : qsTr("Triangle: 自动计算阈值")
+                    text: binAlgorithm === 1 ? qsTr("Otsu: 自动计算阈值") : qsTr("三角形法: 自动计算阈值")
                     font.pixelSize: 10
                     color: FluTheme.dark ? "#aaaaaa" : "#888888"
                 }

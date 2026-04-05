@@ -17,6 +17,7 @@ public:
     SINGLETON(TranslateHelper)
     ~TranslateHelper() override;
     void init(QQmlEngine *engine);
+    Q_INVOKABLE void switchLanguage(const QString &language);
 
 private:
     QQmlEngine *_engine = nullptr;

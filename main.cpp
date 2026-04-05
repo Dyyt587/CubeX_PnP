@@ -32,6 +32,8 @@
 #include "src/helper/GerberPreviewRenderer.h"
 #include "src/helper/OpenCvPreviewManager.h"
 #include "src/helper/SMTWork.h"
+#include "src/helper/SettingsHelper.h"
+#include "src/helper/TranslateHelper.h"
 
 static QString resolveInteractiveBomUrl()
 {
@@ -97,6 +99,9 @@ int main(int argc, char *argv[])
     QCoreApplication::setOrganizationDomain(QStringLiteral("cubex.local"));
     QCoreApplication::setApplicationName(QStringLiteral("CubeX_PnP"));
 
+    // 必须先初始化 SettingsHelper，再初始化 TranslateHelper
+    SettingsHelper::getInstance()->init(argv);
+
     QQmlApplicationEngine engine;
     SerialPortManager serialPortManager;
     CameraDeviceManager cameraDeviceManager;
@@ -105,6 +110,13 @@ int main(int argc, char *argv[])
     OpenCvPreviewManager openCvPreviewManager;
     SMTWork smtWork;
 
+    // 初始化翻译系统（此时 SettingsHelper 已准备好）
+    TranslateHelper::getInstance()->init(&engine);
+    
+    // Load dark mode setting and apply it
+    int darkModeSetting = SettingsHelper::getInstance()->getDarkMode();
+    qDebug() << "[STARTUP] Loaded dark mode setting:" << darkModeSetting;
+    
     if (!gerberPreviewManager.initFromWorkspace(resolveWorkspaceRoot())) {
         qWarning() << "Gerber preview init failed:" << gerberPreviewManager.lastError();
     }
@@ -118,6 +130,8 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("gerberPreviewManager", &gerberPreviewManager);
     engine.rootContext()->setContextProperty("openCvPreviewManager", &openCvPreviewManager);
     engine.rootContext()->setContextProperty("smtWork", &smtWork);
+    engine.rootContext()->setContextProperty("transHelper", TranslateHelper::getInstance());
+    engine.rootContext()->setContextProperty("settingsHelper", SettingsHelper::getInstance());
     engine.rootContext()->setContextProperty("interactiveBomUrl", resolveInteractiveBomUrl());
     engine.addImageProvider("opencvpreview", openCvPreviewManager.createImageProvider());
 

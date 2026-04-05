@@ -34,8 +34,8 @@ Item {
         id: custom_update_dialog
         property var text
         property var onAccpetListener
-        title: qsTr("Modify the column name")
-        negativeText: qsTr("Cancel")
+        title: qsTr("修改列名")
+        negativeText: qsTr("取消")
         contentDelegate: Component {
             Item {
                 implicitWidth: parent.width
@@ -53,7 +53,7 @@ Item {
                 }
             }
         }
-        positiveText: qsTr("OK")
+        positiveText: qsTr("确定")
         onPositiveClicked: {
             if (custom_update_dialog.onAccpetListener) {
                 custom_update_dialog.onAccpetListener(custom_update_dialog.text)
@@ -94,7 +94,7 @@ Item {
             }
 
             FluButton {
-                text: qsTr("Search")
+                text: qsTr("搜索")
                 anchors {
                     bottom: parent.bottom
                     right: parent.right
@@ -142,7 +142,7 @@ Item {
             }
 
             FluButton {
-                text: qsTr("Search")
+                text: qsTr("搜索")
                 anchors {
                     bottom: parent.bottom
                     right: parent.right
